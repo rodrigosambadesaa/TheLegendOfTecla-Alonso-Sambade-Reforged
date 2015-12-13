@@ -1,0 +1,52 @@
+# mochila: celda, portador, tipo, nombre, descripcion, capacidad (num objetos), peso max (kg).
+0,0;jugador;mochila;mochila;tu mochila espacial;5;40
+
+# binoculares: celda, portador, tipo, nombre, descripcion, alcance, peso
+4,7;.;binoculares;binoculares_1;unos binoculares de corto alcance;10;1
+4,12;.;binoculares;binoculares_2;unos binoculares de largo alcance;20;2
+1,2;.;binoculares;binoculares_3;unos binoculares rotos;1;2
+
+# arma: celda, portador, tipo, nombre, descripcion, daño, alcance, manos, peso
+1,0;.;arma;pistola_1;una pistola básica;20;2;1;1
+1,0;.;arma;pistola_2;una pistola básica con mirilla;30;4;1;1
+1,0;.;arma;escopeta_1;una escopeta recortada;60;2;2;3
+
+# armadura: celda, portador, tipo, nombre, descripcion, defensa, +salud, +energia, peso
+1,3;.;armadura;chaleco_1;un chaleco básico;50;10;10;4
+5,1;.;armadura;coraza_1;una coraza básica;70;15;20;6
+
+9,1;.;armadura;chaleco_2;un chaleco de kevlar;100;30;30;5
+9,1;.;arma;rifle_1;un rifle de plasma;80;6;2;5
+9,1;.;arma;rifle_2;un rifle laser;60;5;2;2.5
+
+4,12;.;armadura;chaleco_3;un chaleco de kevlar reforzado;130;40;40;6
+4,12;.;arma;rifle_francotirador_1;un rifle de francotirador con mirilla;90;10;2;6
+
+# botiquines: celda, portador, tipo, nombre, descripcion, salud recuperada, peso
+5,9;.;botiquin;botiquin_1;un pequeño botiquín;25;0.5
+7,3;.;botiquin;botiquin_2;un pequeño botiquín;25;0.5
+9,3;.;botiquin;botiquin_3;un botiquín;75;1
+3,13;.;botiquin;botiquin_4;un botiquín;75;1
+8,10;.;botiquin;botiquin_5;un pequeño botiquín estropeado;-10;0.5
+
+# armas y armaduras de enemigos
+4,4;sectoid_1;arma;pistola_plasma_1;una pistola basica alienígena;20;3;1;1
+4,4;sectoid_1;armadura;armadura_alien_1;un chaleco alienígena básico;20;10;10;2
+
+6,6;floater_1;arma;rifle_plasma_22;un rifle de plasma;30;6;2;3
+6,6;sectoid_2;armadura;armadura_alien_2;un chaleco alienígena;80;15;15;2
+
+0,11;sectoid_3;arma;pistola_plasma_23;una pistola potente;60;3;1;1
+0,11;sectoid_3;armadura;armadura_alien_23;un chaleco alienígena básico;30;10;10;2
+
+2,12;floater_2;arma;rifle_plasma_24;un rifle;40;5;2;2
+2,12;floater_2;armadura;armadura_alien_24;un chaleco alienígena básico;10;10;10;2
+
+# jefe final
+7,11;heavy_floater_1;arma;canon_25;un cañón de plasma;80;5;2;10
+7,11;heavy_floater_1;armadura;armadura_25;un chaleco alienígena básico;5;30;10;2
+
+
+
+
+

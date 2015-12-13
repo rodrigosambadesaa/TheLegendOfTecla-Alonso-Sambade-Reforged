@@ -1,0 +1,15 @@
+# Jugador: celda, tipo, nombre, salud inicial, energia por turno
+0,0;jugador;Ryan;100;100
+
+# Enemigo: celda, tipo, nombre, salud inicial, energia por turno
+4,4;enemigo;sectoid_1;30;40
+6,6;enemigo;sectoid_2;30;40
+6,6;enemigo;floater_1;60;70
+
+2,12;enemigo;floater_2;60;70
+0,11;enemigo;sectoid_3;30;40
+
+7,11;enemigo;heavy_floater_1;100;65
+
+
+
