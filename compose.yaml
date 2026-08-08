@@ -1,0 +1,36 @@
+services:
+  juego:
+    build:
+      context: .
+    stdin_open: true
+    tty: true
+
+  gui:
+    build:
+      context: .
+      dockerfile: Dockerfile.gui
+    ports:
+      - "127.0.0.1:${TECLA_GUI_PORT:-6080}:6080"
+    shm_size: "256mb"
+    init: true
+    restart: "no"
+
+  javadoc:
+    image: maven:3.9.11-eclipse-temurin-17-alpine
+    working_dir: /workspace
+    command: mvn -B -ntp javadoc:javadoc
+    volumes:
+      - .:/workspace
+      - maven-cache:/root/.m2
+
+  javadoc-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.javadoc
+    ports:
+      - "127.0.0.1:${TECLA_DOCS_PORT:-8081}:8080"
+    init: true
+    restart: "no"
+
+volumes:
+  maven-cache:

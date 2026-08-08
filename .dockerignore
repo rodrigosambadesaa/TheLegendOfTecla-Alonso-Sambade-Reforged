@@ -1,0 +1,10 @@
+.git
+.vscode
+out
+target
+docs/*
+!docs/javadoc-site/
+!docs/javadoc-site/**
+*.pdf
+/*.txt
+README.md
