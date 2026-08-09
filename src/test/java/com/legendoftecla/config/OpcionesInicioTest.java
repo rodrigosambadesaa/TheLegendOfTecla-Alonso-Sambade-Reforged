@@ -1,0 +1,99 @@
+package com.legendoftecla.config;
+
+import com.legendoftecla.constants.Dificultad;
+import com.legendoftecla.constants.CondicionVictoria;
+import org.junit.jupiter.api.Test;
+
+import java.nio.file.Path;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class OpcionesInicioTest {
+    @Test
+    void aplicaValoresPredeterminadosEnInicioRapido() {
+        OpcionesInicio opciones = OpcionesInicio.desdeArgumentos(new String[] { "--rapido" });
+
+        assertEquals("Tecla", opciones.nombre());
+        assertEquals("marine", opciones.clase());
+        assertEquals("default", opciones.modo());
+        assertEquals(Dificultad.NORMAL, opciones.dificultad());
+        assertEquals(Boolean.FALSE, opciones.conAliados());
+        assertEquals(CondicionVictoria.JUGADOR_Y_ALIADOS, opciones.condicionVictoria());
+        assertEquals(1, opciones.varianteMapa());
+        assertTrue(opciones.rapido());
+        assertNull(opciones.dimensiones());
+    }
+
+    @Test
+    void interpretaLasOpcionesClasicasYNormalizaAlias() {
+        OpcionesInicio opciones = OpcionesInicio.desdeArgumentos(new String[] {
+            "--rapido", "--nombre", "Ada", "--clase", "ZAPADOR",
+            "--modo", "2", "--datos", "data/../data/escenario_json", "--editor"
+        });
+
+        assertEquals("Ada", opciones.getNombre());
+        assertEquals("zapador", opciones.getClase());
+        assertEquals("ficheros", opciones.getModo());
+        assertEquals(Dificultad.NORMAL, opciones.getDificultad());
+        assertNull(opciones.getDimensiones());
+        assertEquals(Path.of("data", "escenario_json"), opciones.getDirectorioDatos());
+        assertEquals(Boolean.FALSE, opciones.getConAliados());
+        assertEquals(CondicionVictoria.JUGADOR_Y_ALIADOS, opciones.getCondicionVictoria());
+        assertEquals(1, opciones.getVarianteMapa());
+        assertTrue(opciones.isEditor());
+        assertTrue(opciones.isGui());
+    }
+
+    @Test
+    void permiteQueInteractivoDesactiveRapidoYReconoceAyuda() {
+        OpcionesInicio opciones = OpcionesInicio.desdeArgumentos(new String[] {
+            "--rapido", "--interactivo", "-h"
+        });
+
+        assertFalse(opciones.isRapido());
+        assertTrue(opciones.isMostrarAyuda());
+        assertNull(opciones.getNombre());
+        assertFalse(OpcionesInicio.ayuda().contains("--dimensiones"));
+        assertTrue(OpcionesInicio.ayuda().contains("--aliados"));
+        assertTrue(OpcionesInicio.ayuda().contains("--victoria"));
+    }
+
+    @Test
+    void completaDirectorioDeEscenarioTxtEnModoRapido() {
+        OpcionesInicio opciones = OpcionesInicio.desdeArgumentos(new String[] {
+            "--rapido", "--modo", "ficheros"
+        });
+
+        assertEquals(Path.of("data", "escenario_basico"), opciones.directorioDatos());
+    }
+
+    @Test
+    void rechazaOpcionesYValoresInvalidosConMensajesUtiles() {
+        assertThrows(IllegalArgumentException.class,
+                () -> OpcionesInicio.desdeArgumentos(new String[] { "--desconocida" }));
+        assertThrows(IllegalArgumentException.class,
+                () -> OpcionesInicio.desdeArgumentos(new String[] { "--nombre" }));
+        assertThrows(IllegalArgumentException.class,
+                () -> OpcionesInicio.desdeArgumentos(new String[] { "--clase", "mago" }));
+        assertThrows(IllegalArgumentException.class,
+                () -> OpcionesInicio.desdeArgumentos(new String[] { "--modo", "red" }));
+        assertThrows(IllegalArgumentException.class,
+                () -> OpcionesInicio.desdeArgumentos(new String[] { "--dificultad", "letal" }));
+        assertThrows(IllegalArgumentException.class,
+                () -> OpcionesInicio.desdeArgumentos(new String[] { "--dimensiones", "grande" }));
+        assertThrows(IllegalArgumentException.class,
+                () -> OpcionesInicio.desdeArgumentos(new String[] { "--dimensiones", "axb" }));
+        assertThrows(IllegalArgumentException.class,
+                () -> OpcionesInicio.desdeArgumentos(new String[] { "--aliados", "quizas" }));
+        assertThrows(IllegalArgumentException.class,
+                () -> OpcionesInicio.desdeArgumentos(new String[] { "--victoria", "el_primero" }));
+        assertThrows(IllegalArgumentException.class,
+                () -> OpcionesInicio.desdeArgumentos(new String[] { "--variante", "cincuenta" }));
+        assertThrows(IllegalArgumentException.class,
+                () -> OpcionesInicio.desdeArgumentos(new String[] { "--variante", "51" }));
+    }
+}

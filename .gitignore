@@ -1,0 +1,14 @@
+# Builds
+out/
+target/
+
+# Archivos de enunciado/dumps locales
+/*.txt
+/*.zip
+
+# Temporales de revisión local
+/tmp/
+/legacy/
+**/nbproject/private/
+/docs/
+/tools/
