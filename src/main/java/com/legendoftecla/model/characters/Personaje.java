@@ -1,11 +1,17 @@
 package com.legendoftecla.model.characters;
 
 import com.legendoftecla.exceptions.AccionInvalidaException;
+import com.legendoftecla.effects.GestorEstados;
+import com.legendoftecla.engine.SistemaTrampas;
 import com.legendoftecla.model.items.Arma;
 import com.legendoftecla.model.items.Armadura;
 import com.legendoftecla.model.items.Binocular;
 import com.legendoftecla.model.items.Explosivo;
+import com.legendoftecla.model.items.Granada;
+import com.legendoftecla.model.items.PerfilArmamento;
+import com.legendoftecla.model.items.ReglasArmamento;
 import com.legendoftecla.model.items.Objeto;
+import com.legendoftecla.model.items.Linterna;
 import com.legendoftecla.model.world.Direccion;
 import com.legendoftecla.model.world.Juego;
 import com.legendoftecla.model.world.Posicion;
@@ -70,6 +76,9 @@ public abstract class Personaje {
      * Valor publico {@code penalizacionEnergiaSiguienteTurno} utilizado por el modelo del juego.
      */
     private double penalizacionEnergiaSiguienteTurno;
+    private boolean linternaActiva;
+    private int alcanceLinterna;
+    private GestorEstados estados;
 
     /**
      * Ejecuta Personaje.
@@ -81,6 +90,7 @@ public abstract class Personaje {
       * @param visionBase valor de {@code visionBase}
      */
     protected Personaje(String nombre, int salud, int energia, Posicion posicion, Mochila mochila, int visionBase) {
+        setEstados(new GestorEstados(this));
         setNombre(nombre);
         setMochila(mochila);
         setArmasEquipadas(List.of());
@@ -93,6 +103,8 @@ public abstract class Personaje {
         setVisionBase(visionBase);
         setVisionTemporal(0);
         setPenalizacionEnergiaSiguienteTurno(0.0);
+        setLinternaActiva(false);
+        setAlcanceLinterna(0);
     }
 
     /**
@@ -232,7 +244,8 @@ public abstract class Personaje {
       * @return resultado de la operacion
      */
     public int getRangoVision() {
-        return visionBase + visionTemporal;
+        return Math.max(1, (int) Math.floor((visionBase + visionTemporal)
+                * estados.multiplicadorVision()));
     }
 
     /** @return alcance visual base sin mejoras temporales */
@@ -305,6 +318,10 @@ public abstract class Personaje {
         if (armas.size() > 2 || armas.stream().anyMatch(java.util.Objects::isNull)) {
             throw new IllegalArgumentException("Solo se admiten dos armas equipadas y ninguna puede ser nula.");
         }
+        if (armas.stream().anyMatch(arma -> !faccionCompatible(arma.getFaccion()))) {
+            throw new IllegalArgumentException(
+                    "El armamento equipado no es compatible con la faccion o el rol.");
+        }
         this.armasEquipadas = new ArrayList<>(armas);
     }
 
@@ -322,6 +339,10 @@ public abstract class Personaje {
      * @param armadura nueva armadura
      */
     public void setArmaduraEquipada(Armadura armadura) {
+        if (armadura != null && !puedeUsar(armadura)) {
+            throw new IllegalArgumentException(
+                    "La armadura equipada no es compatible con la faccion.");
+        }
         this.armaduraEquipada = armadura;
     }
 
@@ -330,6 +351,32 @@ public abstract class Personaje {
     /** @param binocular binocular equipado opcional */
     public void setBinocularEquipado(Binocular binocular) { this.binocularEquipado = binocular; }
 
+    public boolean isLinternaActiva() { return linternaActiva; }
+    public void setLinternaActiva(boolean linternaActiva) { this.linternaActiva = linternaActiva; }
+    public int getAlcanceLinterna() { return alcanceLinterna; }
+    public void setAlcanceLinterna(int alcanceLinterna) {
+        this.alcanceLinterna = Validaciones.enteroEntre(
+                alcanceLinterna, 0, Limites.ESTADISTICA, "Alcance de linterna");
+    }
+
+    public boolean tieneLinterna() {
+        return mochila.getObjetos().stream().anyMatch(Linterna.class::isInstance);
+    }
+
+    /** @return gestor de efectos temporales de este personaje */
+    public GestorEstados getEstados() {
+        return estados;
+    }
+
+    /** @param estados gestor no nulo perteneciente a este personaje */
+    public void setEstados(GestorEstados estados) {
+        GestorEstados validado = Validaciones.noNulo(estados, "Gestor de estados");
+        if (validado.getPersonaje() != this) {
+            throw new IllegalArgumentException("El gestor debe pertenecer al personaje.");
+        }
+        this.estados = validado;
+    }
+
     /**
      * Ejecuta mover.
       * @param direccion valor de {@code direccion}
@@ -337,6 +384,9 @@ public abstract class Personaje {
       * @throws com.legendoftecla.exceptions.AccionInvalidaException si la operacion no puede completarse
      */
     public void mover(Direccion direccion, Juego juego) throws AccionInvalidaException {
+        if (estados.consumirBloqueoAccion()) {
+            throw new AccionInvalidaException("Estas aturdido y pierdes la accion.");
+        }
         Validaciones.noNulo(direccion, "Direccion");
         Validaciones.noNulo(juego, "Juego");
         Posicion destino = posicion.mover(direccion);
@@ -346,6 +396,8 @@ public abstract class Personaje {
         int coste = calcularCosteMovimiento();
         gastarEnergia(coste);
         setPosicion(destino);
+        SistemaTrampas.activarAlEntrar(juego, destino, this);
+        estados.alMover();
     }
 
     /**
@@ -355,12 +407,37 @@ public abstract class Personaje {
      */
     public void coger(Objeto objeto) throws AccionInvalidaException {
         Validaciones.noNulo(objeto, "Objeto");
-        if (objeto instanceof Explosivo && !(this instanceof Zapador)) {
+        if (!admitePorClase(objeto)) {
             throw new AccionInvalidaException("Solo el zapador puede cargar explosivos.");
         }
         if (!mochila.guardar(objeto)) {
             throw new AccionInvalidaException("La mochila no tiene capacidad o peso disponible.");
         }
+    }
+
+    /**
+     * Comprueba de antemano peso, capacidad y restricciones de clase.
+     *
+     * @param objeto candidato a recoger
+     * @return si {@link #coger(Objeto)} puede completarse en el estado actual
+     */
+    public boolean puedeCoger(Objeto objeto) {
+        Validaciones.noNulo(objeto, "Objeto");
+        return admitePorClase(objeto) && mochila.puedeGuardar(objeto);
+    }
+
+    private boolean admitePorClase(Objeto objeto) {
+        if (objeto instanceof Arma arma && !puedeUsar(arma)) {
+            return false;
+        }
+        if (objeto instanceof Armadura armadura && !puedeUsar(armadura)) {
+            return false;
+        }
+        if (objeto instanceof Granada) {
+            return getPerfilArmamento().permiteGranadas();
+        }
+        return !(objeto instanceof Explosivo)
+                || getPerfilArmamento().permiteDemolicion();
     }
 
     /**
@@ -448,6 +525,7 @@ public abstract class Personaje {
      */
     public void atacar(Personaje objetivo) {
         Validaciones.noNulo(objetivo, "Objetivo");
+        consumirMunicionAtaque(posicion.distanciaManhattan(objetivo.getPosicion()));
         int danio = calcularDanio(objetivo);
         objetivo.recibirDanio(danio);
     }
@@ -461,6 +539,8 @@ public abstract class Personaje {
         if (objetivos.isEmpty()) {
             return;
         }
+        consumirMunicionAtaque(posicion.distanciaManhattan(
+                objetivos.get(0).getPosicion()));
         int danio = Math.max(1, calcularDanio(objetivos.get(0)) / objetivos.size());
         for (Personaje personaje : objetivos) {
             Validaciones.noNulo(personaje, "Objetivo");
@@ -479,6 +559,34 @@ public abstract class Personaje {
             base = 4;
         }
         return Math.max(1, aplicarModificadorDanio(base, objetivo));
+    }
+
+    /** @return si al menos un arma equipada puede disparar, o se puede combatir desarmado */
+    public boolean puedeAtacar() {
+        return armasEquipadas.isEmpty() || armasEquipadas.stream().anyMatch(Arma::puedeDisparar);
+    }
+
+    /** @return si existe un arma cargada que cubre la distancia indicada */
+    public boolean puedeAtacarA(int distancia) {
+        return armasEquipadas.isEmpty() ? distancia <= getRangoVision()
+                : armasEquipadas.stream().anyMatch(arma ->
+                        arma.puedeDisparar() && arma.alcanza(distancia));
+    }
+
+    /** @return primera arma cargada que el ataque consumiría a esa distancia */
+    public java.util.Optional<Arma> armaDisponiblePara(int distancia) {
+        return armasEquipadas.stream().filter(arma ->
+                arma.puedeDisparar() && arma.alcanza(distancia)).findFirst();
+    }
+
+    private void consumirMunicionAtaque(int distancia) {
+        // Los personajes historicos sin equipo conservan su ataque natural/implicito.
+        // Solo las armas explicitas quedan sujetas a cargador y tipo de municion.
+        if (armasEquipadas.isEmpty() && distancia <= getRangoVision()) return;
+        for (Arma arma : armasEquipadas) {
+            if (arma.alcanza(distancia) && arma.consumirDisparo()) return;
+        }
+        throw new IllegalStateException("No hay un arma cargada con alcance suficiente.");
     }
 
     /**
@@ -520,6 +628,10 @@ public abstract class Personaje {
      */
     protected void equiparArma(Arma arma) throws AccionInvalidaException {
         Validaciones.noNulo(arma, "Arma");
+        if (!puedeUsar(arma)) {
+            throw new AccionInvalidaException(
+                    "La clase no domina esta categoria de arma o su municion.");
+        }
         int usadas = 0;
         for (Arma equipada : armasEquipadas) {
             usadas += equipada.isDosManos() ? 2 : 1;
@@ -533,12 +645,41 @@ public abstract class Personaje {
         setArmasEquipadas(nuevasArmas);
     }
 
+    /** @return competencias de armamento del rol concreto */
+    public PerfilArmamento getPerfilArmamento() {
+        return ReglasArmamento.perfil(this);
+    }
+
+    /** @param arma arma que se desea equipar */
+    public boolean puedeUsar(Arma arma) {
+        Arma validada = Validaciones.noNulo(arma, "Arma");
+        return faccionCompatible(validada.getFaccion())
+                && getPerfilArmamento().permite(validada);
+    }
+
+    /** @param armadura proteccion que se desea equipar */
+    public boolean puedeUsar(Armadura armadura) {
+        Armadura validada = Validaciones.noNulo(armadura, "Armadura");
+        return faccionCompatible(validada.getFaccion());
+    }
+
+    private boolean faccionCompatible(
+            com.legendoftecla.model.items.FaccionEquipo faccion) {
+        return this instanceof Enemigo
+                ? faccion == com.legendoftecla.model.items.FaccionEquipo.ENEMIGA
+                : faccion == com.legendoftecla.model.items.FaccionEquipo.HUMANA;
+    }
+
     /**
      * Ejecuta equiparArmadura.
       * @param armadura valor de {@code armadura}
      */
     protected void equiparArmadura(Armadura armadura) throws AccionInvalidaException {
         Validaciones.noNulo(armadura, "Armadura");
+        if (!puedeUsar(armadura)) {
+            throw new AccionInvalidaException(
+                    "La biologia o tecnologia de esta armadura pertenece a otra faccion.");
+        }
         if (armaduraEquipada != null) {
             throw new AccionInvalidaException("Ya hay una armadura equipada.");
         }

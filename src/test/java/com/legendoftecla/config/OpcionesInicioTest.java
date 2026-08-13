@@ -22,6 +22,7 @@ class OpcionesInicioTest {
         assertEquals("default", opciones.modo());
         assertEquals(Dificultad.NORMAL, opciones.dificultad());
         assertEquals(Boolean.FALSE, opciones.conAliados());
+        assertEquals(0, opciones.cantidadAliados());
         assertEquals(CondicionVictoria.JUGADOR_Y_ALIADOS, opciones.condicionVictoria());
         assertEquals(1, opciones.varianteMapa());
         assertTrue(opciones.rapido());
@@ -29,23 +30,47 @@ class OpcionesInicioTest {
     }
 
     @Test
-    void interpretaLasOpcionesClasicasYNormalizaAlias() {
+    void interpretaTodasLasOpcionesYNormalizaAlias() {
         OpcionesInicio opciones = OpcionesInicio.desdeArgumentos(new String[] {
             "--rapido", "--nombre", "Ada", "--clase", "ZAPADOR",
-            "--modo", "2", "--datos", "data/../data/escenario_json", "--editor"
+            "--modo", "3", "--dificultad", "muy_dificil",
+            "--dimensiones", "12x20", "--datos", "data/../data/escenario_json",
+            "--aliados", "sí", "--nivel-aliados", "12",
+            "--victoria", "solo_jugador", "--variante", "50", "--editor"
         });
 
         assertEquals("Ada", opciones.getNombre());
         assertEquals("zapador", opciones.getClase());
         assertEquals("ficheros", opciones.getModo());
-        assertEquals(Dificultad.NORMAL, opciones.getDificultad());
-        assertNull(opciones.getDimensiones());
+        assertEquals(Dificultad.MUY_DIFICIL, opciones.getDificultad());
+        assertEquals(12, opciones.getDimensiones().getFilas());
+        assertEquals(20, opciones.getDimensiones().getColumnas());
         assertEquals(Path.of("data", "escenario_json"), opciones.getDirectorioDatos());
-        assertEquals(Boolean.FALSE, opciones.getConAliados());
-        assertEquals(CondicionVictoria.JUGADOR_Y_ALIADOS, opciones.getCondicionVictoria());
-        assertEquals(1, opciones.getVarianteMapa());
+        assertEquals(Boolean.TRUE, opciones.getConAliados());
+        assertEquals(-1, opciones.getCantidadAliados());
+        assertEquals(12, opciones.getNivelAliados());
+        assertEquals(CondicionVictoria.SOLO_JUGADOR, opciones.getCondicionVictoria());
+        assertEquals(50, opciones.getVarianteMapa());
         assertTrue(opciones.isEditor());
         assertTrue(opciones.isGui());
+    }
+
+    @Test
+    void aceptaCantidadExactaDeAliadosYConservaElModoAutomatico() {
+        OpcionesInicio exactos = OpcionesInicio.desdeArgumentos(
+                new String[] { "--aliados", "37" });
+        OpcionesInicio automaticos = OpcionesInicio.desdeArgumentos(
+                new String[] { "--aliados", "auto" });
+
+        assertEquals(37, exactos.cantidadAliados());
+        assertEquals(Boolean.TRUE, exactos.conAliados());
+        assertEquals(-1, automaticos.cantidadAliados());
+        assertEquals(0, OpcionesInicio.desdeArgumentos(
+                new String[] { "--nivel-aliados", "auto" }).nivelAliados());
+        assertThrows(IllegalArgumentException.class,
+                () -> OpcionesInicio.desdeArgumentos(new String[] { "--aliados", "1001" }));
+        assertThrows(IllegalArgumentException.class,
+                () -> OpcionesInicio.desdeArgumentos(new String[] { "--nivel-aliados", "101" }));
     }
 
     @Test
@@ -57,9 +82,7 @@ class OpcionesInicioTest {
         assertFalse(opciones.isRapido());
         assertTrue(opciones.isMostrarAyuda());
         assertNull(opciones.getNombre());
-        assertFalse(OpcionesInicio.ayuda().contains("--dimensiones"));
-        assertTrue(OpcionesInicio.ayuda().contains("--aliados"));
-        assertTrue(OpcionesInicio.ayuda().contains("--victoria"));
+        assertTrue(OpcionesInicio.ayuda().contains("--dimensiones"));
     }
 
     @Test

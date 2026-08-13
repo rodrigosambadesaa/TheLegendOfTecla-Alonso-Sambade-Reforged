@@ -18,8 +18,13 @@ public final class ConfiguracionPartida {
     private DimensionesMapa dimensiones;
     private Path directorioDatos;
     private boolean conAliados;
+    /** Cero desactiva, menos uno calcula y un valor positivo fija la cantidad. */
+    private int cantidadAliados = 0;
+    /** Cero mantiene el nivel automatico; un valor positivo lo personaliza. */
+    private int nivelAliados = 0;
     private CondicionVictoria condicionVictoria;
     private int varianteMapa;
+    private long seed = 1L;
 
     /**
      * Crea una configuracion completa utilizando exclusivamente setters.
@@ -55,13 +60,21 @@ public final class ConfiguracionPartida {
     public ConfiguracionPartida(String nombreJugador, String clase, String modo, Dificultad dificultad,
             DimensionesMapa dimensiones, Path directorioDatos, boolean conAliados,
             CondicionVictoria condicionVictoria, int varianteMapa) {
+        this(nombreJugador, clase, modo, dificultad, dimensiones, directorioDatos,
+                conAliados ? -1 : 0, condicionVictoria, varianteMapa);
+    }
+
+    /** Crea una configuracion con cantidad automatica ({@code -1}), nula o explicita. */
+    public ConfiguracionPartida(String nombreJugador, String clase, String modo, Dificultad dificultad,
+            DimensionesMapa dimensiones, Path directorioDatos, int cantidadAliados,
+            CondicionVictoria condicionVictoria, int varianteMapa) {
         setNombreJugador(nombreJugador);
         setClase(clase);
         setDificultad(dificultad);
         setDimensiones(dimensiones);
         setDirectorioDatos(directorioDatos);
         setModo(modo);
-        setConAliados(conAliados);
+        setCantidadAliados(cantidadAliados);
         setCondicionVictoria(condicionVictoria);
         setVarianteMapa(varianteMapa);
         validarCoherencia();
@@ -102,7 +115,8 @@ public final class ConfiguracionPartida {
     public void setModo(String modo) {
         String valor = Validaciones.textoObligatorio(modo, "Modo", Limites.TEXTO_CORTO)
                 .toLowerCase(Locale.ROOT);
-        if (!valor.equals("default") && !valor.equals("grande") && !valor.equals("ficheros")) {
+        if (!valor.equals("default") && !valor.equals("grande")
+                && !valor.equals("ficheros") && !valor.equals("procedural")) {
             throw new IllegalArgumentException("Modo de juego invalido: " + modo);
         }
         if (valor.equals("ficheros") && directorioDatos == null) {
@@ -153,7 +167,20 @@ public final class ConfiguracionPartida {
 
     /** @param conAliados estado solicitado */
     public void setConAliados(boolean conAliados) {
-        this.conAliados = conAliados;
+        setCantidadAliados(conAliados ? -1 : 0);
+    }
+
+    /** @return menos uno para calculo automatico, cero sin aliados o cantidad exacta */
+    public int getCantidadAliados() { return cantidadAliados; }
+
+    /** @param cantidadAliados menos uno, cero o cantidad entre uno y el limite defensivo */
+    public void setCantidadAliados(int cantidadAliados) {
+        if (cantidadAliados < -1 || cantidadAliados > Limites.ALIADOS_MAXIMOS) {
+            throw new IllegalArgumentException("Cantidad de aliados fuera de limites: usa auto o un valor entre 0 y "
+                    + Limites.ALIADOS_MAXIMOS + ".");
+        }
+        this.cantidadAliados = cantidadAliados;
+        this.conAliados = cantidadAliados != 0;
     }
 
     /** @return condicion de llegada necesaria para ganar */
@@ -192,10 +219,27 @@ public final class ConfiguracionPartida {
     public Path directorioDatos() { return getDirectorioDatos(); }
     /** @return aliados, conservando la API anterior */
     public boolean conAliados() { return isConAliados(); }
+    /** @return politica de cantidad de aliados */
+    public int cantidadAliados() { return getCantidadAliados(); }
+    /** @return cero para automatico o nivel exacto solicitado */
+    public int getNivelAliados() { return nivelAliados; }
+    /** @param nivelAliados cero o nivel entre uno y cien */
+    public void setNivelAliados(int nivelAliados) {
+        this.nivelAliados = Validaciones.enteroEntre(nivelAliados, 0,
+                Limites.NIVEL_ALIADO_MAXIMO, "Nivel de aliados");
+    }
+    /** @return nivel solicitado conservando acceso compacto */
+    public int nivelAliados() { return getNivelAliados(); }
     /** @return condicion de victoria, conservando el estilo de acceso compacto */
     public CondicionVictoria condicionVictoria() { return getCondicionVictoria(); }
     /** @return variante, conservando la API anterior */
     public int varianteMapa() { return getVarianteMapa(); }
+    /** @return semilla procedural */
+    public long getSeed() { return seed; }
+    /** @param seed semilla reproducible sin restricciones */
+    public void setSeed(long seed) { this.seed = seed; }
+    /** @return semilla conservando el acceso compacto */
+    public long seed() { return seed; }
     private void validarCoherencia() {
         if ("ficheros".equals(modo) && directorioDatos == null) {
             throw new IllegalArgumentException("Selecciona el directorio del escenario.");

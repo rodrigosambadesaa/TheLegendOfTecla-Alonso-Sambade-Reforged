@@ -31,6 +31,12 @@ public class CargadorJuegoPorDefecto extends CargadorJuegoBase {
         super(consola, nombreJugador, clase, dificultad, dimensiones, conAliados);
     }
 
+    /** Crea el cargador con cantidad automatica ({@code -1}), nula o explicita. */
+    public CargadorJuegoPorDefecto(Consola consola, String nombreJugador, String clase,
+            Dificultad dificultad, DimensionesMapa dimensiones, int cantidadAliados) {
+        super(consola, nombreJugador, clase, dificultad, dimensiones, cantidadAliados);
+    }
+
     @Override
     /**
      * Ejecuta cargarJuego.
@@ -62,6 +68,7 @@ public class CargadorJuegoPorDefecto extends CargadorJuegoBase {
                     GameConstants.MAX_VISION_BASE);
         };
 
+        GeneradorAmbiente.completar(mapa, new java.util.Random(211));
         Juego juego = new Juego(consola, mapa, jugador, 160);
 
         Random random = new Random(11);
@@ -72,8 +79,13 @@ public class CargadorJuegoPorDefecto extends CargadorJuegoBase {
         int baseEnemigos = Math.max(4, (filas * columnas) / 28);
         int cantidadEnemigos = dificultad.ajustarCantidadEnemigos(baseEnemigos);
         poblarEnemigos(juego, mapa, random, cantidadEnemigos);
+        int aliadosGenerados = conAliados
+                ? GeneradorAliados.poblar(juego, mapa, dificultad, new Random(12),
+                        "AliadoBase", cantidadAliados, nivelAliados)
+                : 0;
         consola.imprimirInfo("Dificultad: " + dificultad.getEtiqueta()
                 + " | enemigos=" + cantidadEnemigos
+                + " | aliados=" + aliadosGenerados
                 + " | salud x" + dificultad.getMultiplicadorSaludEnemigo()
                 + " | danio x" + dificultad.getMultiplicadorDanioEnemigo());
 
@@ -90,8 +102,9 @@ public class CargadorJuegoPorDefecto extends CargadorJuegoBase {
             switch (tipo) {
                 case 0 -> mapa.getCelda(p).agregarObjeto(new Botiquin("botiquin_" + i, "Cura 20 de salud", 1.0, 20));
                 case 1 -> mapa.getCelda(p).agregarObjeto(new ToritoRojo("torito_" + i, "Subida de energia", 0.5, 25));
-                case 2 ->
-                    mapa.getCelda(p).agregarObjeto(new Arma("escopeta_" + i, "Arma de corto alcance", 4.0, 18, false));
+                case 2 -> mapa.getCelda(p).agregarObjeto(new Arma(
+                        "escopeta_" + i, "Arma de corto alcance", 4.0, 18, false,
+                        TipoMunicion.RIFLE, 6, 6));
                 case 3 ->
                     mapa.getCelda(p).agregarObjeto(new Armadura("chaleco_" + i, "Proteccion ligera", 6.0, 4, 10, 10));
                 case 4 -> mapa.getCelda(p).agregarObjeto(new Binocular("binocular_" + i, "Amplia vision", 1.2, 2));
@@ -108,15 +121,20 @@ public class CargadorJuegoPorDefecto extends CargadorJuegoBase {
         for (int i = 0; i < cantidad; i++) {
             Posicion p = randomPosTransitable(mapa, random, ocupadas);
             Enemigo enemigo;
-            int tipo = random.nextInt(3);
-            if (tipo == 0) {
-                enemigo = new Sectoid("Sectoid_" + i, p, new Mochila(3, 10), 2);
-            } else if (tipo == 1) {
-                enemigo = new LightFloater("LightFloater_" + i, p, new Mochila(3, 10), 2);
-            } else {
-                enemigo = new HeavyFloater("HeavyFloater_" + i, p, new Mochila(3, 10), 2);
-            }
+            int tipo = random.nextInt(9);
+            enemigo = switch (tipo) {
+                case 0 -> new Sectoid("Sectoid_" + i, p, new Mochila(3, 10), 2);
+                case 1 -> new LightFloater("LightFloater_" + i, p, new Mochila(3, 10), 2);
+                case 2 -> new HeavyFloater("HeavyFloater_" + i, p, new Mochila(3, 10), 2);
+                case 3 -> new Berserker("Berserker_" + i, p, new Mochila(3, 10), 3);
+                case 4 -> new Medic("Medic_" + i, p, new Mochila(3, 10), 3);
+                case 5 -> new Sniper("Sniper_" + i, p, new Mochila(3, 10), 6);
+                case 6 -> new Pyro("Pyro_" + i, p, new Mochila(3, 10), 4);
+                case 7 -> new Scout("Scout_" + i, p, new Mochila(3, 10), 6);
+                default -> new Commander("Commander_" + i, p, new Mochila(3, 10), 5);
+            };
             enemigo.escalarSalud(dificultad.getMultiplicadorSaludEnemigo());
+            com.legendoftecla.engine.ArsenalEnemigo.asignar(enemigo, dificultad);
             mapa.getCelda(p).agregarEnemigo(enemigo);
             juego.agregarEnemigo(enemigo);
             ocupadas.add(p);

@@ -50,7 +50,7 @@ public final class ComandoCargar implements Comando {
         try {
             Juego cargado = new CargadorJuegoDeFicheros(
                     anterior.getConsola(), jugador.getNombre(), clase, Path.of(directorio),
-                    Dificultad.NORMAL, null, false).cargarJuego();
+                    Dificultad.NORMAL, null, !anterior.getAliadosRegistrados().isEmpty()).cargarJuego();
             cargado.setCondicionVictoria(anterior.getCondicionVictoria());
             context.setJuego(cargado);
             cargado.getConsola().imprimirExito(

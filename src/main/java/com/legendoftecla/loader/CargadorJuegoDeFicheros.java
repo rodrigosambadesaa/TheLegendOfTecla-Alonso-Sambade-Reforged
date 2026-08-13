@@ -8,6 +8,8 @@ import com.legendoftecla.model.characters.*;
 import com.legendoftecla.model.items.Arma;
 import com.legendoftecla.model.items.Botiquin;
 import com.legendoftecla.model.items.Objeto;
+import com.legendoftecla.model.items.CuboAgua;
+import com.legendoftecla.model.items.Linterna;
 import com.legendoftecla.model.world.*;
 
 import java.io.IOException;
@@ -38,6 +40,13 @@ public class CargadorJuegoDeFicheros extends CargadorJuegoBase {
         setDirectorio(directorio);
     }
 
+    /** Crea el cargador de ficheros con cantidad automatica ({@code -1}), nula o explicita. */
+    public CargadorJuegoDeFicheros(Consola consola, String nombreJugador, String clase, Path directorio,
+            Dificultad dificultad, DimensionesMapa dimensiones, int cantidadAliados) {
+        super(consola, nombreJugador, clase, dificultad, dimensiones, cantidadAliados);
+        setDirectorio(directorio);
+    }
+
     /** @return directorio de datos normalizado */
     public Path getDirectorio() {
         return directorio;
@@ -55,8 +64,10 @@ public class CargadorJuegoDeFicheros extends CargadorJuegoBase {
      */
     public Juego cargarJuego() throws JuegoException {
         if (Files.exists(directorio.resolve(SerializadorEscenarioJson.NOMBRE_ARCHIVO))) {
-            return new CargadorJuegoJson(consola, nombreJugador, clase, directorio,
-                    dificultad, dimensiones, conAliados).cargarJuego();
+            CargadorJuegoJson cargador = new CargadorJuegoJson(consola, nombreJugador, clase,
+                    directorio, dificultad, dimensiones, cantidadAliados);
+            cargador.setNivelAliados(nivelAliados);
+            return cargador.cargarJuego();
         }
         try {
             Path mapaPath = directorio.resolve("mapa.txt");
@@ -83,6 +94,7 @@ public class CargadorJuegoDeFicheros extends CargadorJuegoBase {
                     mapa.setCelda(f, c, new Celda("Celda " + f + "," + c, true));
                 }
             }
+            aplicarDirectivasMapa(mapa, mapaLineas.stream().skip(3).toList());
 
             Jugador jugador = switch (clase.toLowerCase()) {
                 case "marine" -> new Marine(nombreJugador, inicio,
@@ -113,12 +125,16 @@ public class CargadorJuegoDeFicheros extends CargadorJuegoBase {
                 if (!mapa.estaDentro(pos)) {
                     continue;
                 }
-                Objeto obj = tipo.equalsIgnoreCase("arma")
-                        ? new Arma(nombre, "Arma desde fichero", 3.0, 10, false)
-                        : new Botiquin(nombre, "Botiquin desde fichero", 1.0, 15);
+                Objeto obj = switch (tipo.toLowerCase()) {
+                    case "arma" -> new Arma(nombre, "Arma desde fichero", 3.0, 10, false);
+                    case "linterna" -> new Linterna(nombre, "Linterna desde fichero", 0.8, 4);
+                    case "cubo", "cuboagua" -> new CuboAgua(nombre, "Cubo desde fichero", 2.0, true);
+                    default -> new Botiquin(nombre, "Botiquin desde fichero", 1.0, 15);
+                };
                 mapa.getCelda(pos).agregarObjeto(obj);
             }
             GeneradorSuministrosDificultad.poblar(mapa, dificultad, new Random(103));
+            GeneradorAmbiente.completar(mapa, new Random(109));
 
             List<String> lineasEnemigos = Files.readAllLines(enemigosPath).stream()
                     .map(String::trim)
@@ -135,6 +151,7 @@ public class CargadorJuegoDeFicheros extends CargadorJuegoBase {
                 String[] p = line.split(";");
                 Enemigo enemigo = crearEnemigoDesdePartes(mapa, p, procesados, randomEnemigos);
                 enemigo.escalarSalud(dificultad.getMultiplicadorSaludEnemigo());
+                com.legendoftecla.engine.ArsenalEnemigo.asignar(enemigo, dificultad);
                 mapa.getCelda(enemigo.getPosicion()).agregarEnemigo(enemigo);
                 juego.agregarEnemigo(enemigo);
                 procesados++;
@@ -145,6 +162,7 @@ public class CargadorJuegoDeFicheros extends CargadorJuegoBase {
                 String[] partes = new String[] { tipo, "Auto_" + procesados, "-1", "-1" };
                 Enemigo enemigo = crearEnemigoDesdePartes(mapa, partes, procesados, randomEnemigos);
                 enemigo.escalarSalud(dificultad.getMultiplicadorSaludEnemigo());
+                com.legendoftecla.engine.ArsenalEnemigo.asignar(enemigo, dificultad);
                 mapa.getCelda(enemigo.getPosicion()).agregarEnemigo(enemigo);
                 juego.agregarEnemigo(enemigo);
                 procesados++;
@@ -155,6 +173,12 @@ public class CargadorJuegoDeFicheros extends CargadorJuegoBase {
                     + " | salud x" + dificultad.getMultiplicadorSaludEnemigo()
                     + " | danio x" + dificultad.getMultiplicadorDanioEnemigo());
 
+            int aliadosGenerados = conAliados
+                    ? GeneradorAliados.poblar(juego, mapa, dificultad, new Random(77),
+                            "AliadoFichero", cantidadAliados, nivelAliados)
+                    : 0;
+            consola.imprimirInfo("Aliados generados=" + aliadosGenerados);
+
             return juego;
         } catch (IOException | RuntimeException e) {
             throw new JuegoException("No se pudo cargar el juego de ficheros: " + e.getMessage());
@@ -163,6 +187,23 @@ public class CargadorJuegoDeFicheros extends CargadorJuegoBase {
 
     private String elegirTipoEnemigo(Random random) {
         return random.nextBoolean() ? "sectoid" : "heavyfloater";
+    }
+
+    private void aplicarDirectivasMapa(Mapa mapa, List<String> directivas) {
+        for (String directiva : directivas) {
+            String[] partes = directiva.split(";");
+            if (partes.length != 3) continue;
+            Posicion posicion = new Posicion(Integer.parseInt(partes[1]), Integer.parseInt(partes[2]));
+            if (!mapa.estaDentro(posicion)) continue;
+            Celda celda = mapa.getCelda(posicion);
+            switch (partes[0].trim().toLowerCase()) {
+                case "oscura" -> celda.setOscuridadPermanente(true);
+                case "madera" -> celda.setTipoSuelo(TipoSuelo.MADERA);
+                case "antorcha" -> celda.setAntorchaMural(true);
+                case "fuente" -> celda.setFuenteAgua(true);
+                default -> { }
+            }
+        }
     }
 
     private Enemigo crearEnemigoDesdePartes(Mapa mapa, String[] p, int indice, Random random) {

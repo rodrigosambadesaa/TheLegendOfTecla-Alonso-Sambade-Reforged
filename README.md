@@ -5,19 +5,21 @@ Castro y Rodrigo Sambade Saá. El primer commit conserva como código fuente la
 entrega original, que obtuvo un 6/10; los commits posteriores construyen la
 versión que habría debido entregarse entonces.
 
-Esta edición mantiene el alcance clásico de P1–P3 y la parte opcional de interfaz/editor,
-con la ampliación táctica solicitada de aliados y condiciones de victoria. No incorpora
-dificultades, descanso ni mapas grandes con variantes. Incluye consola y GUI Swing accesible desde web
-mediante noVNC, editor gráfico, escenarios predeterminados/TXT/JSON, las clases
-Marine, Francotirador y Zapador, inventario, equipo, combate y comandos
-compuestos.
+Esta edición integra la implementación moderna completa manteniendo las clases
+Marine, Francotirador y Zapador: GUI web, editor, dificultades, descanso, mapas
+predeterminados, grandes, TXT, JSON y procedurales por semilla, misiones,
+persistencia, progresión, entorno destructible, trampas, fabricación, munición y
+combate táctico.
 
-Los aliados se activan en el asistente gráfico o con `--aliados si`; se puede elegir
-`--victoria solo_jugador|jugador_y_aliados`. Durante la partida, `reagrupar defensiva`
-y `reagrupar ofensiva` hacen que acompañen al jugador. Si faltan suministros, el aliado
-en mejor estado explora sin alejarse más de tres celdas, y los enemigos reaccionan al
-detectar la formación. Los binoculares se reservan hasta que revelan una amenaza y se
-consumen tras ese único uso.
+Los aliados parten junto al jugador, pueden generarse automáticamente o en una
+cantidad y nivel elegidos, puntúan individualmente y priorizan ayudar y explorar.
+Algunos cumplen el rol médico y buscan botiquines y Toritos Rojos. Los enemigos
+emplean armas y armaduras de su propia facción, se coordinan cuando hay escuadra y
+su número se escala de forma justa con los aliados. Cada celda posee ambientación
+detallada y `mirar` refleja fielmente suelo, luz, fuego, agua y estructuras visibles.
+La partida puede continuar en modo espectador cuando muere el jugador: `Play`
+reproduce a ritmo normal los turnos restantes. Mapa, estado, acciones, eventos y
+comandos viven en ventanas movibles, redimensionables, minimizables y maximizables.
 
 ## Ejecutar
 

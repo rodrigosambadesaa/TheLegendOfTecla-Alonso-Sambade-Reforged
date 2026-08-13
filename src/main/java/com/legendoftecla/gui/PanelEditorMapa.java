@@ -36,6 +36,17 @@ public final class PanelEditorMapa extends JPanel {
         OBJETIVO("Objetivo"),
         ENEMIGO("Anadir enemigo"),
         OBJETO("Anadir objeto"),
+        PUERTA("Anadir puerta"),
+        TERMINAL("Anadir terminal"),
+        INTERRUPTOR("Anadir interruptor"),
+        COFRE("Anadir cofre"),
+        MINA("Anadir mina"),
+        TRAMPA_FUEGO("Anadir trampa de fuego"),
+        TRAMPA_VENENO("Anadir trampa de veneno"),
+        TRAMPA_ELECTRICA("Anadir trampa electrica"),
+        ALARMA("Anadir alarma"),
+        COBERTURA("Anadir cobertura completa"),
+        PARED_DEBIL("Anadir pared debil"),
         EDITAR_CELDA("Editar celda"),
         BORRAR("Borrar contenido");
 
@@ -95,6 +106,8 @@ public final class PanelEditorMapa extends JPanel {
      * Valor publico {@code directorioActual} utilizado por el modelo del juego.
      */
     private Path directorioActual;
+    /** Selector persistido que activa la generacion automatica de aliados. */
+    private final JCheckBox conAliados = new JCheckBox("Incluir aliados automaticos");
 
     /**
      * Crea una instancia de {@code PanelEditorMapa}.
@@ -151,6 +164,7 @@ public final class PanelEditorMapa extends JPanel {
         metadatos.add(descripcion);
         metadatos.add(new JLabel("Pasos max.:"));
         metadatos.add(pasos);
+        metadatos.add(conAliados);
         contenedor.add(metadatos, BorderLayout.CENTER);
 
         JToolBar barra = new JToolBar();
@@ -175,6 +189,12 @@ public final class PanelEditorMapa extends JPanel {
         JButton guardarComo = new JButton("Guardar como...");
         guardarComo.addActionListener(e -> guardarEscenario(true));
         barra.add(guardarComo);
+        JButton mision = new JButton("Configurar mision");
+        mision.addActionListener(e -> configurarMision());
+        barra.add(mision);
+        JButton validar = new JButton("Validar escenario");
+        validar.addActionListener(e -> validarEscenario());
+        barra.add(validar);
         barra.addSeparator();
         JButton regresar = new JButton("Volver al menu");
         regresar.addActionListener(e -> volver.run());
@@ -244,12 +264,42 @@ public final class PanelEditorMapa extends JPanel {
                 }
                 case ENEMIGO -> anadirPersonaje(fila, columna);
                 case OBJETO -> anadirObjeto(fila, columna);
+                case PUERTA -> configurarElemento(celda, "puerta", "CERRADA");
+                case TERMINAL -> configurarElemento(celda, "terminal", null);
+                case INTERRUPTOR -> configurarElemento(celda, "interruptor", null);
+                case COFRE -> configurarElemento(celda, "cofre", null);
+                case MINA -> configurarElemento(celda, "mina", null);
+                case TRAMPA_FUEGO -> configurarElemento(celda, "trampa_fuego", null);
+                case TRAMPA_VENENO -> configurarElemento(celda, "trampa_veneno", null);
+                case TRAMPA_ELECTRICA -> configurarElemento(celda, "trampa_electrica", null);
+                case ALARMA -> configurarElemento(celda, "alarma", null);
+                case COBERTURA -> configurarElemento(celda, "cobertura", null);
+                case PARED_DEBIL -> configurarElemento(celda, "pared_debil", null);
                 case EDITAR_CELDA -> editarCelda(celda);
                 case BORRAR -> borrarContenido(fila, columna);
             }
             reconstruirCuadricula();
         } catch (IllegalArgumentException e) {
             JOptionPane.showMessageDialog(this, e.getMessage(), "Operacion no valida", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void configurarElemento(EscenarioDefinicion.CeldaDef celda,
+            String tipo, String estado) {
+        celda.setElementoTipo(tipo);
+        celda.setElementoId(tipo + "-" + celda.getFila() + "-" + celda.getColumna());
+        celda.setElementoEstado(estado);
+        celda.setTransitable(true);
+    }
+
+    private void validarEscenario() {
+        try {
+            sincronizarMetadatos();
+            SerializadorEscenarioJson.validar(escenario);
+            JOptionPane.showMessageDialog(this, "Escenario valido y objetivo alcanzable.");
+        } catch (JuegoException | IllegalArgumentException error) {
+            JOptionPane.showMessageDialog(this, error.getMessage(), "Escenario no valido",
+                    JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -265,7 +315,9 @@ public final class PanelEditorMapa extends JPanel {
 
     private void anadirPersonaje(int fila, int columna) {
         exigirSuelo(fila, columna);
-        JComboBox<String> tipo = new JComboBox<>(new String[]{"sectoid", "lightfloater", "heavyfloater"});
+        JComboBox<String> tipo = new JComboBox<>(new String[]{"sectoid", "lightfloater",
+                "heavyfloater", "berserker", "medic", "sniper", "pyro", "scout",
+                "commander", "commanderprime", "pyrooverlord"});
         JTextField nombrePersonaje = new JTextField("Enemigo");
         JSpinner salud = new JSpinner(new SpinnerNumberModel(70, 1, 5000, 5));
         JSpinner energia = new JSpinner(new SpinnerNumberModel(70, 1, 5000, 5));
@@ -299,7 +351,8 @@ public final class PanelEditorMapa extends JPanel {
     private void anadirObjeto(int fila, int columna) {
         exigirSuelo(fila, columna);
         JComboBox<String> tipo = new JComboBox<>(new String[]{
-                "botiquin", "arma", "armadura", "binocular", "torito", "explosivo"});
+                "botiquin", "arma", "armadura", "binocular", "torito", "explosivo",
+                "granada", "linterna", "cuboagua", "municion", "credencial", "componente"});
         JTextField nombreObjeto = new JTextField("Objeto");
         JTextField descripcionObjeto = new JTextField("Objeto personalizado");
         JSpinner peso = new JSpinner(new SpinnerNumberModel(1.0, 0.0, 1000.0, 0.1));
@@ -307,7 +360,17 @@ public final class PanelEditorMapa extends JPanel {
         JSpinner valor2 = new JSpinner(new SpinnerNumberModel(0, 0, 5000, 1));
         JSpinner valor3 = new JSpinner(new SpinnerNumberModel(0, 0, 5000, 1));
         JCheckBox dosManos = new JCheckBox("Arma a dos manos");
-        JLabel ayuda = new JLabel("Valor: cura/danio/defensa/rango/energia; valores 2 y 3: bonus salud y energia de armadura");
+        JComboBox<String> categoria = new JComboBox<>(new String[]{
+                "", "MELE", "ARROJADIZA", "ARCO", "BALLESTA", "FUEGO"});
+        JComboBox<String> municion = new JComboBox<>(new String[]{
+                "", "INFINITA", "CUCHILLO_ARROJADIZO", "FLECHA", "VIROTE",
+                "PISTOLA", "RIFLE", "PESADA", "COHETE", "ENERGIA"});
+        JSpinner cargador = new JSpinner(new SpinnerNumberModel(0, 0, 5000, 1));
+        JSpinner carga = new JSpinner(new SpinnerNumberModel(0, 0, 5000, 1));
+        JSpinner cantidad = new JSpinner(new SpinnerNumberModel(0, 0, 5000, 1));
+        JComboBox<String> granada = new JComboBox<>(new String[]{
+                "FRAGMENTACION", "INCENDIARIA", "HUMO", "ATURDIDORA"});
+        JLabel ayuda = new JLabel("Para armas finitas indica familia, municion y cargador; cantidad se usa en paquetes.");
         JPanel formulario = formulario(
                 new JLabel("Tipo:"), tipo,
                 new JLabel("Nombre:"), nombreObjeto,
@@ -317,6 +380,11 @@ public final class PanelEditorMapa extends JPanel {
                 new JLabel("Valor secundario:"), valor2,
                 new JLabel("Valor terciario:"), valor3,
                 new JLabel("Opciones:"), dosManos,
+                new JLabel("Categoria de arma:"), categoria,
+                new JLabel("Tipo de municion:"), municion,
+                new JLabel("Capacidad / carga:"), formulario(cargador, carga),
+                new JLabel("Cantidad de municion:"), cantidad,
+                new JLabel("Tipo de granada:"), granada,
                 new JLabel("Ayuda:"), ayuda);
         int respuesta = JOptionPane.showConfirmDialog(this, formulario, "Configurar objeto",
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
@@ -337,13 +405,96 @@ public final class PanelEditorMapa extends JPanel {
         objeto.setValorSecundario(numero(valor2));
         objeto.setValorTerciario(numero(valor3));
         objeto.setDosManos(dosManos.isSelected());
+        objeto.setCategoriaArma(textoOpcional(categoria));
+        objeto.setTipoMunicion(textoOpcional(municion));
+        objeto.setCapacidadCargador(numero(cargador));
+        objeto.setMunicionActual(numero(carga));
+        objeto.setCantidad(numero(cantidad));
+        objeto.setTipoGranada((String) granada.getSelectedItem());
         escenario.agregarObjeto(objeto);
+    }
+
+    private void configurarMision() {
+        EscenarioDefinicion.MisionDef actual = escenario.getMision();
+        JCheckBox victoriaClasica = new JCheckBox("Usar victoria clasica (sin mision)",
+                actual == null);
+        JTextField id = new JTextField(actual == null ? "mision-1" : actual.getId());
+        JTextField nombreMision = new JTextField(
+                actual == null ? "Operacion Tecla" : actual.getNombre());
+        JComboBox<String> tipo = new JComboBox<>(new String[]{"alcanzar_salida",
+                "eliminar_enemigo", "eliminar_jefe", "rescatar", "recuperar_objeto",
+                "activar_terminal", "sobrevivir_turnos", "escoltar", "apagar_incendio",
+                "no_perder_aliados", "sin_disparar"});
+        if (actual != null) tipo.setSelectedItem(actual.getPrincipal().getTipo());
+        JTextField argumento = new JTextField(actual == null ? "" : actual.getPrincipal().getArgumento());
+        JSpinner valor = new JSpinner(new SpinnerNumberModel(
+                actual == null ? 1 : actual.getPrincipal().getValor(), 0, 100000, 1));
+        int filaInicial = actual != null && actual.getPrincipal().getPosicion() != null
+                ? actual.getPrincipal().getPosicion().getFila() : escenario.getObjetivo().getFila();
+        int columnaInicial = actual != null && actual.getPrincipal().getPosicion() != null
+                ? actual.getPrincipal().getPosicion().getColumna() : escenario.getObjetivo().getColumna();
+        JSpinner filaObjetivo = new JSpinner(new SpinnerNumberModel(
+                filaInicial, 0, escenario.getFilas() - 1, 1));
+        JSpinner columnaObjetivo = new JSpinner(new SpinnerNumberModel(
+                columnaInicial, 0, escenario.getColumnas() - 1, 1));
+        JCheckBox sinBajas = new JCheckBox("Secundario: no perder aliados",
+                actual != null && actual.getSecundarios().stream()
+                        .anyMatch(o -> "no_perder_aliados".equalsIgnoreCase(o.getTipo())));
+        JTextField recompensas = new JTextField(actual == null ? ""
+                : String.join(", ", actual.getRecompensas()));
+        JPanel formulario = formulario(
+                new JLabel("Modo:"), victoriaClasica,
+                new JLabel("ID:"), id,
+                new JLabel("Nombre:"), nombreMision,
+                new JLabel("Objetivo principal:"), tipo,
+                new JLabel("Nombre/ID asociado:"), argumento,
+                new JLabel("Turnos/valor:"), valor,
+                new JLabel("Fila/columna:"), formulario(filaObjetivo, columnaObjetivo),
+                new JLabel("Objetivo secundario:"), sinBajas,
+                new JLabel("Recompensas (coma):"), recompensas);
+        if (JOptionPane.showConfirmDialog(this, formulario, "Configurar mision",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) {
+            return;
+        }
+        if (victoriaClasica.isSelected()) {
+            escenario.setMision(null);
+            return;
+        }
+        EscenarioDefinicion.ObjetivoDef principal = new EscenarioDefinicion.ObjetivoDef();
+        principal.setTipo((String) tipo.getSelectedItem());
+        principal.setArgumento(argumento.getText().trim());
+        principal.setValor(numero(valor));
+        principal.setPosicion(new EscenarioDefinicion.Punto(
+                numero(filaObjetivo), numero(columnaObjetivo)));
+        EscenarioDefinicion.MisionDef mision = new EscenarioDefinicion.MisionDef();
+        mision.setId(id.getText().trim());
+        mision.setNombre(nombreMision.getText().trim());
+        mision.setPrincipal(principal);
+        if (sinBajas.isSelected()) {
+            EscenarioDefinicion.ObjetivoDef secundario = new EscenarioDefinicion.ObjetivoDef();
+            secundario.setTipo("no_perder_aliados");
+            mision.setSecundarios(java.util.List.of(secundario));
+        }
+        mision.setRecompensas(java.util.Arrays.stream(recompensas.getText().split(","))
+                .map(String::trim).filter(valorTexto -> !valorTexto.isEmpty()).toList());
+        escenario.setMision(mision);
     }
 
     private void editarCelda(EscenarioDefinicion.CeldaDef celda) {
         JTextField texto = new JTextField(celda.getDescripcion(), 25);
         JCheckBox transitable = new JCheckBox("Transitable", celda.isTransitable());
-        JPanel formulario = formulario(new JLabel("Descripcion:"), texto, new JLabel("Tipo:"), transitable);
+        JCheckBox oscura = new JCheckBox("Oscuridad permanente", celda.isOscura());
+        JCheckBox madera = new JCheckBox("Suelo de madera", celda.isSueloMadera());
+        JCheckBox antorcha = new JCheckBox("Antorcha mural", celda.hasAntorchaMural());
+        JCheckBox fuente = new JCheckBox("Fuente de agua", celda.hasFuenteAgua());
+        JSpinner fuego = new JSpinner(new SpinnerNumberModel(celda.getNivelFuego(), 0, 3, 1));
+        JPanel formulario = formulario(new JLabel("Descripcion:"), texto,
+                new JLabel("Tipo:"), transitable,
+                new JLabel("Ambiente:"), oscura,
+                new JLabel("Suelo:"), madera,
+                new JLabel("Iluminacion:"), antorcha,
+                new JLabel("Agua:"), fuente,
+                new JLabel("Fuego inicial (0-3):"), fuego);
         if (JOptionPane.showConfirmDialog(this, formulario, "Editar celda",
                 JOptionPane.OK_CANCEL_OPTION) == JOptionPane.OK_OPTION) {
             if (!transitable.isSelected()
@@ -353,6 +504,11 @@ public final class PanelEditorMapa extends JPanel {
             }
             celda.setDescripcion(texto.getText());
             celda.setTransitable(transitable.isSelected());
+            celda.setOscura(oscura.isSelected());
+            celda.setSueloMadera(madera.isSelected());
+            celda.setAntorchaMural(antorcha.isSelected());
+            celda.setFuenteAgua(fuente.isSelected());
+            celda.setNivelFuego(numero(fuego));
             if (!celda.isTransitable()) {
                 borrarContenido(celda.getFila(), celda.getColumna());
             }
@@ -446,6 +602,7 @@ public final class PanelEditorMapa extends JPanel {
         pasos.setValue(escenario.getPasosMaximos());
         filas.setValue(escenario.getFilas());
         columnas.setValue(escenario.getColumnas());
+        conAliados.setSelected(escenario.isConAliados());
     }
 
     private void sincronizarMetadatos() {
@@ -455,7 +612,7 @@ public final class PanelEditorMapa extends JPanel {
         escenario.setNombre(nombre.getText());
         escenario.setDescripcion(descripcion.getText());
         escenario.setPasosMaximos(numero(pasos));
-        escenario.setConAliados(false);
+        escenario.setConAliados(conAliados.isSelected());
     }
 
     private EscenarioDefinicion.CeldaDef asegurarCelda(int fila, int columna) {
@@ -479,6 +636,11 @@ public final class PanelEditorMapa extends JPanel {
 
     private int numero(JSpinner spinner) {
         return ControlesNumericos.valorEntero(spinner);
+    }
+
+    private String textoOpcional(JComboBox<String> selector) {
+        String valor = (String) selector.getSelectedItem();
+        return valor == null || valor.isBlank() ? null : valor;
     }
 
     private JPanel formulario(java.awt.Component... componentes) {

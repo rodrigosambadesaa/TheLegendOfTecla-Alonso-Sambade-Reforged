@@ -2,6 +2,8 @@ package com.legendoftecla.commands;
 
 import com.legendoftecla.exceptions.AccionInvalidaException;
 import com.legendoftecla.exceptions.ComandoException;
+import com.legendoftecla.events.ObjetoTirado;
+import com.legendoftecla.events.RuidoGenerado;
 import com.legendoftecla.model.items.Objeto;
 import com.legendoftecla.model.world.Celda;
 import com.legendoftecla.validation.Limites;
@@ -47,6 +49,12 @@ public class ComandoTirar implements Comando {
             Celda celda = context.getJuego().getMapa().getCelda(context.getJuego().getJugador().getPosicion());
             celda.agregarObjeto(obj);
             context.getJuego().getConsola().imprimir("Has tirado " + obj.getNombre() + ".");
+            var posicion = context.getJuego().getJugador().getPosicion();
+            context.getJuego().publicarEvento(new ObjetoTirado(
+                    context.getJuego().getBusEventos().ahora(),
+                    context.getJuego().getJugador().getNombre(), obj.getNombre(), posicion));
+            context.getJuego().publicarEvento(new RuidoGenerado(
+                    context.getJuego().getBusEventos().ahora(), posicion, 2, "objeto tirado"));
         } catch (AccionInvalidaException e) {
             throw new ComandoException(e.getMessage());
         }

@@ -6,6 +6,7 @@ import com.legendoftecla.engine.ConfiguracionPartida;
 import com.legendoftecla.loader.EscenarioDefinicion;
 import com.legendoftecla.loader.CargadorJuegoBase;
 import com.legendoftecla.loader.CargadorJuegoDeFicheros;
+import com.legendoftecla.loader.CargadorJuegoGrandeConAliados;
 import com.legendoftecla.loader.CargadorJuegoJson;
 import com.legendoftecla.model.characters.Jugador;
 import com.legendoftecla.model.characters.Marine;
@@ -47,7 +48,7 @@ class ValidacionInternaTest {
                 ConfiguracionPartida.class, OpcionesInicio.class,
                 com.legendoftecla.engine.MotorPartida.class,
                 CargadorJuegoBase.class, CargadorJuegoDeFicheros.class,
-                CargadorJuegoJson.class,
+                CargadorJuegoGrandeConAliados.class, CargadorJuegoJson.class,
                 EscenarioDefinicion.class, EscenarioDefinicion.Punto.class,
                 EscenarioDefinicion.CeldaDef.class,
                 EscenarioDefinicion.PersonajeDef.class,
@@ -60,11 +61,13 @@ class ValidacionInternaTest {
                 com.legendoftecla.commands.ComandoCargar.class,
                 com.legendoftecla.commands.ComandoCompuesto.class,
                 com.legendoftecla.commands.ComandoDesequipar.class,
+                com.legendoftecla.commands.ComandoDescansar.class,
                 com.legendoftecla.commands.ComandoEquipar.class,
                 com.legendoftecla.commands.ComandoInventario.class,
                 com.legendoftecla.commands.ComandoLanzarExplosivo.class,
                 com.legendoftecla.commands.ComandoMirar.class,
                 com.legendoftecla.commands.ComandoMover.class,
+                com.legendoftecla.commands.ComandoPedirAyuda.class,
                 com.legendoftecla.commands.ComandoRecorrido.class,
                 com.legendoftecla.commands.ComandoRepetido.class,
                 com.legendoftecla.commands.ComandoSalir.class,

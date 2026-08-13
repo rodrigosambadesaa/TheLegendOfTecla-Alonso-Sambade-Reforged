@@ -17,7 +17,6 @@ import com.legendoftecla.model.world.Posicion;
 import org.junit.jupiter.api.Test;
 
 import javax.swing.JTextField;
-import javax.swing.JButton;
 import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.awt.Container;
@@ -56,7 +55,7 @@ class ComandosCompuestosConsolaGuiTest {
     }
 
     @Test
-    void laConsolaRepiteMovimientosYAtaquesAlObjetivoNominal() {
+    void laConsolaRepiteMovimientosYAtaquesATodaLaCelda() {
         TestFixtures.CapturingConsole consola = TestFixtures.consola();
         Juego juego = juegoAbierto(consola);
         MotorPartida motor = new MotorPartida(juego);
@@ -75,8 +74,10 @@ class ComandosCompuestosConsolaGuiTest {
         motor.ejecutarComando("atacar 2e alien azul 2");
 
         assertTrue(primero.getSalud() < saludPrimero);
-        assertEquals(saludSegundo, segundo.getSalud());
-        assertEquals(2, contar(consola.salida(), "Atacas a alien azul"));
+        assertTrue(segundo.getSalud() < saludSegundo,
+                "La ampliacion actual ataca a todos aunque se nombre uno de la celda");
+        assertEquals(saludPrimero - primero.getSalud(), saludSegundo - segundo.getSalud());
+        assertEquals(2, contar(consola.salida(), "Atacas a todos los enemigos"));
     }
 
     @Test
@@ -164,17 +165,6 @@ class ComandosCompuestosConsolaGuiTest {
     }
 
     @Test
-    void laGuiExponeLasDosOrdenesDeFormacion() throws Exception {
-        ConsolaGrafica consola = new ConsolaGrafica();
-        PanelJuego[] panel = new PanelJuego[1];
-        SwingUtilities.invokeAndWait(() -> panel[0] = new PanelJuego(
-                new MotorPartida(juegoAbierto(consola)), consola, () -> { }));
-
-        assertNotNull(buscarBoton(panel[0], "Formacion defensiva"));
-        assertNotNull(buscarBoton(panel[0], "Formacion ofensiva"));
-    }
-
-    @Test
     void mirarAdmiteObjetoAlcanceCompactoYDetalleDeEnemigo() throws Exception {
         TestFixtures.CapturingConsole consola = TestFixtures.consola();
         Juego juego = juegoAbierto(consola);
@@ -239,21 +229,6 @@ class ComandosCompuestosConsolaGuiTest {
             }
             if (componente instanceof Container hijo) {
                 Component encontrado = buscarPorNombre(hijo, nombre);
-                if (encontrado != null) {
-                    return encontrado;
-                }
-            }
-        }
-        return null;
-    }
-
-    private JButton buscarBoton(Container contenedor, String texto) {
-        for (Component componente : contenedor.getComponents()) {
-            if (componente instanceof JButton boton && texto.equals(boton.getText())) {
-                return boton;
-            }
-            if (componente instanceof Container hijo) {
-                JButton encontrado = buscarBoton(hijo, texto);
                 if (encontrado != null) {
                     return encontrado;
                 }

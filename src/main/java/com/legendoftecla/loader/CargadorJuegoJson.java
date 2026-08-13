@@ -20,11 +20,14 @@ import com.legendoftecla.model.items.Botiquin;
 import com.legendoftecla.model.items.Explosivo;
 import com.legendoftecla.model.items.Objeto;
 import com.legendoftecla.model.items.ToritoRojo;
+import com.legendoftecla.model.items.CuboAgua;
+import com.legendoftecla.model.items.Linterna;
 import com.legendoftecla.model.world.Celda;
 import com.legendoftecla.model.world.DimensionesMapa;
 import com.legendoftecla.model.world.Juego;
 import com.legendoftecla.model.world.Mapa;
 import com.legendoftecla.model.world.Posicion;
+import com.legendoftecla.model.world.TipoSuelo;
 
 import java.nio.file.Path;
 import java.util.Locale;
@@ -47,6 +50,13 @@ public final class CargadorJuegoJson extends CargadorJuegoBase {
     public CargadorJuegoJson(Consola consola, String nombreJugador, String clase, Path directorio,
             Dificultad dificultad, DimensionesMapa dimensiones, boolean conAliados) {
         super(consola, nombreJugador, clase, dificultad, dimensiones, conAliados);
+        setDirectorio(directorio);
+    }
+
+    /** Crea el cargador JSON con cantidad automatica ({@code -1}), nula o explicita. */
+    public CargadorJuegoJson(Consola consola, String nombreJugador, String clase, Path directorio,
+            Dificultad dificultad, DimensionesMapa dimensiones, int cantidadAliados) {
+        super(consola, nombreJugador, clase, dificultad, dimensiones, cantidadAliados);
         setDirectorio(directorio);
     }
 
@@ -80,8 +90,14 @@ public final class CargadorJuegoJson extends CargadorJuegoBase {
             }
         }
         for (EscenarioDefinicion.CeldaDef celda : definicion.getCeldas()) {
-            mapa.setCelda(celda.getFila(), celda.getColumna(),
-                    new Celda(celda.getDescripcion(), celda.isTransitable()));
+            Celda cargada = new Celda(celda.getDescripcion(), celda.isTransitable());
+            cargada.setOscuridadPermanente(celda.isOscura());
+            cargada.setTipoSuelo(celda.isSueloMadera() ? TipoSuelo.MADERA : TipoSuelo.PIEDRA);
+            cargada.setAntorchaMural(celda.hasAntorchaMural());
+            cargada.setFuenteAgua(celda.hasFuenteAgua());
+            cargada.setNivelFuego(celda.getNivelFuego());
+            cargarElemento(cargada, celda);
+            mapa.setCelda(celda.getFila(), celda.getColumna(), cargada);
         }
 
         Jugador jugador = crearJugador(inicio);
@@ -93,6 +109,7 @@ public final class CargadorJuegoJson extends CargadorJuegoBase {
             exigirTransitable(mapa, posicion, "objeto " + objetoDef.getNombre());
             mapa.getCelda(posicion).agregarObjeto(crearObjeto(objetoDef));
         }
+        GeneradorAmbiente.completar(mapa, new Random(311));
         GeneradorSuministrosDificultad.poblar(mapa, dificultad, new Random(307));
 
         int cantidadEnemigos = dificultad.ajustarCantidadEnemigos(definicion.getEnemigos().size());
@@ -110,9 +127,18 @@ public final class CargadorJuegoJson extends CargadorJuegoBase {
             juego.agregarEnemigo(enemigo);
         }
 
+        int aliadosGenerados = conAliados
+                ? GeneradorAliados.poblar(juego, mapa, dificultad, new Random(303),
+                        "AliadoJson", cantidadAliados, nivelAliados)
+                : 0;
+        if (definicion.getMision() != null) {
+            juego.setMision(crearMision(definicion.getMision(), juego));
+        }
+
         consola.imprimirInfo("Escenario JSON cargado: " + definicion.getNombre()
                 + " | dificultad=" + dificultad.getEtiqueta()
-                + " | enemigos=" + cantidadEnemigos);
+                + " | enemigos=" + cantidadEnemigos
+                + " | aliados=" + aliadosGenerados);
         return juego;
     }
 
@@ -130,23 +156,72 @@ public final class CargadorJuegoJson extends CargadorJuegoBase {
             String nombre, Posicion posicion) {
         Mochila mochila = new Mochila(8, 30);
         Enemigo enemigo = switch (definicion.getTipo().toLowerCase(Locale.ROOT)) {
+            case "berserker" -> new com.legendoftecla.model.characters.Berserker(
+                    nombre, posicion, mochila, definicion.getVision());
+            case "medic" -> new com.legendoftecla.model.characters.Medic(
+                    nombre, posicion, mochila, definicion.getVision());
+            case "sniper" -> new com.legendoftecla.model.characters.Sniper(
+                    nombre, posicion, mochila, definicion.getVision());
+            case "pyro" -> new com.legendoftecla.model.characters.Pyro(
+                    nombre, posicion, mochila, definicion.getVision());
+            case "scout" -> new com.legendoftecla.model.characters.Scout(
+                    nombre, posicion, mochila, definicion.getVision());
+            case "commander" -> new com.legendoftecla.model.characters.Commander(
+                    nombre, posicion, mochila, definicion.getVision());
+            case "commanderprime" -> new com.legendoftecla.model.characters.CommanderPrime(
+                    nombre, posicion, mochila, definicion.getVision());
+            case "pyrooverlord" -> new com.legendoftecla.model.characters.PyroOverlord(
+                    nombre, posicion, mochila, definicion.getVision());
             case "lightfloater", "light_floater" -> new LightFloater(
                     nombre, posicion, mochila, definicion.getVision());
             case "heavyfloater", "heavy_floater" -> new HeavyFloater(
                     nombre, posicion, mochila, definicion.getVision());
             default -> new Sectoid(nombre, posicion, mochila, definicion.getVision());
         };
+        com.legendoftecla.engine.ArsenalEnemigo.asignar(enemigo, dificultad);
         enemigo.configurarEstadisticas(
                 definicion.getSalud(), definicion.getEnergia(), definicion.getVision());
         return enemigo;
+    }
+
+    private void cargarElemento(Celda destino, EscenarioDefinicion.CeldaDef origen) {
+        if (origen.getElementoTipo() == null || origen.getElementoTipo().isBlank()) return;
+        String id = origen.getElementoId() == null ? "elemento-" + origen.getFila()
+                + "-" + origen.getColumna() : origen.getElementoId();
+        String tipo = origen.getElementoTipo().toLowerCase(Locale.ROOT);
+        com.legendoftecla.model.elements.ElementoMapa elemento = switch (tipo) {
+            case "puerta" -> new com.legendoftecla.model.elements.Puerta(id,
+                    origen.getElementoEstado() == null
+                            ? com.legendoftecla.model.elements.EstadoPuerta.CERRADA
+                            : com.legendoftecla.model.elements.EstadoPuerta.valueOf(
+                                    origen.getElementoEstado().toUpperCase(Locale.ROOT)),
+                    origen.getReferencia(), true, origen.getResistencia());
+            case "terminal" -> new com.legendoftecla.model.elements.Terminal(
+                    id, origen.getDificultad(), origen.getReferencia());
+            case "interruptor" -> new com.legendoftecla.model.elements.Interruptor(
+                    id, false, origen.getReferencia());
+            case "cofre" -> new com.legendoftecla.model.elements.Cofre(id, java.util.List.of());
+            case "barricada", "cobertura" -> new com.legendoftecla.model.elements.Barricada(
+                    id, origen.getResistencia(), com.legendoftecla.model.elements.TipoCobertura.COMPLETA,
+                    com.legendoftecla.model.elements.OrientacionCobertura.TODAS);
+            case "pared_debil", "pareddebil" ->
+                    new com.legendoftecla.model.elements.ParedDebil(
+                            id, origen.getResistencia());
+            case "mina", "trampa" -> new com.legendoftecla.model.elements.Mina(id, 20, 1, false);
+            case "trampa_fuego" -> new com.legendoftecla.model.elements.TrampaFuego(id);
+            case "trampa_veneno" -> new com.legendoftecla.model.elements.TrampaVeneno(id);
+            case "trampa_electrica" -> new com.legendoftecla.model.elements.TrampaElectrica(id);
+            case "alarma" -> new com.legendoftecla.model.elements.Alarma(id);
+            default -> null;
+        };
+        if (elemento != null) destino.agregarElemento(elemento);
     }
 
     private Objeto crearObjeto(EscenarioDefinicion.ObjetoDef definicion) {
         String tipo = definicion.getTipo().toLowerCase(Locale.ROOT);
         String descripcion = definicion.getDescripcion();
         return switch (tipo) {
-            case "arma" -> new Arma(definicion.getNombre(), descripcion, definicion.getPeso(),
-                    Math.max(1, definicion.getValor()), definicion.isDosManos());
+            case "arma" -> crearArma(definicion, descripcion);
             case "armadura" -> new Armadura(definicion.getNombre(), descripcion, definicion.getPeso(),
                     definicion.getValor(), definicion.getValorSecundario(),
                     definicion.getValorTerciario());
@@ -158,9 +233,112 @@ public final class CargadorJuegoJson extends CargadorJuegoBase {
                     Math.max(1, definicion.getValor()));
             case "explosivo" -> new Explosivo(
                     definicion.getNombre(), descripcion, definicion.getPeso());
+            case "granada" -> new com.legendoftecla.model.items.Granada(
+                    definicion.getNombre(), descripcion, definicion.getPeso(),
+                    com.legendoftecla.model.items.TipoGranada.valueOf(
+                            (definicion.getTipoGranada() == null ? "FRAGMENTACION"
+                                    : definicion.getTipoGranada()).toUpperCase(Locale.ROOT)));
+            case "linterna" -> new Linterna(definicion.getNombre(), descripcion,
+                    definicion.getPeso(), Math.max(1, definicion.getValor()));
+            case "cubo", "cuboagua", "cubo_agua" -> new CuboAgua(definicion.getNombre(), descripcion,
+                    definicion.getPeso(), definicion.getValor() > 0);
+            case "municion" -> new com.legendoftecla.model.items.Municion(
+                    definicion.getNombre(), definicion.getPeso(),
+                    tipoMunicion(definicion), definicion.getCantidad() > 0
+                            ? definicion.getCantidad() : Math.max(0, definicion.getValor()));
+            case "credencial", "llave", "tarjeta" -> new com.legendoftecla.model.items.Credencial(
+                    definicion.getNombre(), descripcion, definicion.getPeso(), definicion.getNombre());
+            case "componente" -> new com.legendoftecla.model.items.Componente(
+                    definicion.getNombre(), descripcion, definicion.getPeso());
             default -> new Botiquin(definicion.getNombre(), descripcion, definicion.getPeso(),
                     Math.max(1, definicion.getValor()));
         };
+    }
+
+    private Arma crearArma(EscenarioDefinicion.ObjetoDef definicion, String descripcion) {
+        if (definicion.getTipoMunicion() == null
+                || definicion.getTipoMunicion().isBlank()) {
+            return new Arma(definicion.getNombre(), descripcion, definicion.getPeso(),
+                    Math.max(1, definicion.getValor()), definicion.isDosManos());
+        }
+        if (definicion.getCategoriaArma() == null
+                || definicion.getCategoriaArma().isBlank()) {
+            return new Arma(definicion.getNombre(), descripcion, definicion.getPeso(),
+                    Math.max(1, definicion.getValor()), definicion.isDosManos(),
+                    tipoMunicion(definicion), definicion.getCapacidadCargador(),
+                    definicion.getMunicionActual());
+        }
+        return new Arma(definicion.getNombre(), descripcion, definicion.getPeso(),
+                Math.max(1, definicion.getValor()), definicion.isDosManos(),
+                com.legendoftecla.model.items.CategoriaArma.valueOf(
+                        definicion.getCategoriaArma().toUpperCase(Locale.ROOT)),
+                tipoMunicion(definicion), definicion.getCapacidadCargador(),
+                definicion.getMunicionActual());
+    }
+
+    private com.legendoftecla.model.items.TipoMunicion tipoMunicion(
+            EscenarioDefinicion.ObjetoDef definicion) {
+        String tipo = definicion.getTipoMunicion();
+        if (tipo == null || tipo.isBlank()) {
+            tipo = definicion.getDescripcion();
+        }
+        return com.legendoftecla.model.items.TipoMunicion.valueOf(
+                tipo.toUpperCase(Locale.ROOT));
+    }
+
+    private com.legendoftecla.missions.Mision crearMision(
+            EscenarioDefinicion.MisionDef definicion, Juego juego) throws JuegoException {
+        java.util.List<com.legendoftecla.missions.ObjetivoMision> secundarios = new java.util.ArrayList<>();
+        for (EscenarioDefinicion.ObjetivoDef secundario : definicion.getSecundarios()) {
+            secundarios.add(crearObjetivo(secundario, juego));
+        }
+        return new com.legendoftecla.missions.Mision(definicion.getId(), definicion.getNombre(),
+                crearObjetivo(definicion.getPrincipal(), juego), secundarios,
+                definicion.getRecompensas());
+    }
+
+    private com.legendoftecla.missions.ObjetivoMision crearObjetivo(
+            EscenarioDefinicion.ObjetivoDef definicion, Juego juego) throws JuegoException {
+        String tipo = definicion.getTipo().toLowerCase(Locale.ROOT);
+        String argumento = definicion.getArgumento();
+        return switch (tipo) {
+            case "alcanzar_salida", "salida" -> new com.legendoftecla.missions.AlcanzarSalida();
+            case "eliminar_enemigo" -> new com.legendoftecla.missions.EliminarEnemigo(argumento);
+            case "eliminar_jefe" -> new com.legendoftecla.missions.EliminarJefe(argumento);
+            case "rescatar" -> new com.legendoftecla.missions.RescatarPersonaje(argumento);
+            case "recuperar_objeto" -> new com.legendoftecla.missions.RecuperarObjeto(argumento);
+            case "sobrevivir_turnos" -> new com.legendoftecla.missions.SobrevivirTurnos(
+                    Math.max(1, definicion.getValor()));
+            case "escoltar" -> new com.legendoftecla.missions.EscoltarPersonaje(argumento);
+            case "apagar_incendio" -> new com.legendoftecla.missions.ApagarIncendio(
+                    posicionObjetivo(definicion, juego));
+            case "no_perder_aliados" -> new com.legendoftecla.missions.NoPerderAliados();
+            case "sin_disparar" -> new com.legendoftecla.missions.CompletarSinDisparar(
+                    new com.legendoftecla.missions.AlcanzarSalida());
+            case "activar_terminal" -> new com.legendoftecla.missions.ActivarTerminal(
+                    buscarTerminal(juego, argumento));
+            default -> throw new JuegoException("Tipo de objetivo desconocido: " + tipo);
+        };
+    }
+
+    private Posicion posicionObjetivo(EscenarioDefinicion.ObjetivoDef definicion, Juego juego) {
+        return definicion.getPosicion() == null
+                ? juego.getMapa().getObjetivo() : posicion(definicion.getPosicion());
+    }
+
+    private com.legendoftecla.model.elements.Terminal buscarTerminal(Juego juego, String id)
+            throws JuegoException {
+        for (int fila = 0; fila < juego.getMapa().getFilas(); fila++) {
+            for (int columna = 0; columna < juego.getMapa().getColumnas(); columna++) {
+                for (var elemento : juego.getMapa().getCelda(new Posicion(fila, columna)).getElementos()) {
+                    if (elemento instanceof com.legendoftecla.model.elements.Terminal terminal
+                            && terminal.getId().equals(id)) {
+                        return terminal;
+                    }
+                }
+            }
+        }
+        throw new JuegoException("Terminal de mision inexistente: " + id);
     }
 
     private Posicion posicion(EscenarioDefinicion.Punto punto) {

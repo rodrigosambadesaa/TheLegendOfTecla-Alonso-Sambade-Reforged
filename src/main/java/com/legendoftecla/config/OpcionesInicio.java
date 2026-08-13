@@ -18,12 +18,17 @@ public final class OpcionesInicio {
     private DimensionesMapa dimensiones;
     private Path directorioDatos;
     private Boolean conAliados;
+    /** {@code null} sin especificar, {@code -1} automatico, cero ninguno o cantidad exacta. */
+    private Integer cantidadAliados;
+    /** {@code null} sin indicar, cero automatico o nivel exacto. */
+    private Integer nivelAliados;
     private CondicionVictoria condicionVictoria;
     private Integer varianteMapa;
     private boolean rapido;
     private boolean mostrarAyuda;
     private boolean gui;
     private boolean editor;
+    private Long seed;
 
     /**
      * Crea las opciones usando sus setters delimitados.
@@ -110,7 +115,22 @@ public final class OpcionesInicio {
     /** @return seleccion de aliados o {@code null} */
     public Boolean getConAliados() { return conAliados; }
     /** @param conAliados seleccion opcional */
-    public void setConAliados(Boolean conAliados) { this.conAliados = conAliados; }
+    public void setConAliados(Boolean conAliados) {
+        this.conAliados = conAliados;
+        this.cantidadAliados = conAliados == null ? null : (conAliados ? -1 : 0);
+    }
+    /** @return politica de cantidad de aliados o {@code null} si no se indico */
+    public Integer getCantidadAliados() { return cantidadAliados; }
+    /** @param cantidadAliados menos uno, cero, cantidad explicita o {@code null} */
+    public void setCantidadAliados(Integer cantidadAliados) {
+        if (cantidadAliados != null
+                && (cantidadAliados < -1 || cantidadAliados > Limites.ALIADOS_MAXIMOS)) {
+            throw new IllegalArgumentException("Cantidad de aliados invalida: usa auto, no o un valor entre 1 y "
+                    + Limites.ALIADOS_MAXIMOS + ".");
+        }
+        this.cantidadAliados = cantidadAliados;
+        this.conAliados = cantidadAliados == null ? null : cantidadAliados != 0;
+    }
     /** @return condicion de victoria opcional */
     public CondicionVictoria getCondicionVictoria() { return condicionVictoria; }
     /** @param condicionVictoria condicion opcional */
@@ -160,6 +180,17 @@ public final class OpcionesInicio {
     public Path directorioDatos() { return getDirectorioDatos(); }
     /** @return aliados conservando la API anterior */
     public Boolean conAliados() { return getConAliados(); }
+    /** @return politica de cantidad de aliados */
+    public Integer cantidadAliados() { return getCantidadAliados(); }
+    /** @return nivel de aliados opcional; cero representa automatico */
+    public Integer getNivelAliados() { return nivelAliados; }
+    /** @param nivelAliados nivel opcional entre cero y cien */
+    public void setNivelAliados(Integer nivelAliados) {
+        this.nivelAliados = nivelAliados == null ? null : Validaciones.enteroEntre(
+                nivelAliados, 0, Limites.NIVEL_ALIADO_MAXIMO, "Nivel de aliados");
+    }
+    /** @return nivel aliado conservando acceso compacto */
+    public Integer nivelAliados() { return getNivelAliados(); }
     /** @return condicion de victoria conservando el estilo de acceso compacto */
     public CondicionVictoria condicionVictoria() { return getCondicionVictoria(); }
     /** @return variante conservando la API anterior */
@@ -172,6 +203,9 @@ public final class OpcionesInicio {
     public boolean gui() { return isGui(); }
     /** @return editor conservando la API anterior */
     public boolean editor() { return isEditor(); }
+    public Long getSeed() { return seed; }
+    public void setSeed(Long seed) { this.seed = seed; }
+    public Long seed() { return seed; }
 
     /**
      * Interpreta las opciones de la linea de comandos.
@@ -187,13 +221,15 @@ public final class OpcionesInicio {
         Dificultad dificultad = null;
         DimensionesMapa dimensiones = null;
         Path directorioDatos = null;
-        Boolean conAliados = null;
+        Integer cantidadAliados = null;
+        Integer nivelAliados = null;
         CondicionVictoria condicionVictoria = null;
         Integer varianteMapa = null;
         boolean rapido = false;
         boolean mostrarAyuda = false;
         boolean gui = false;
         boolean editor = false;
+        Long seed = null;
 
         for (int i = 0; i < args.length; i++) {
             String argumento = Validaciones.textoObligatorio(args[i], "Opcion", Limites.DESCRIPCION);
@@ -206,10 +242,17 @@ public final class OpcionesInicio {
                 case "--nombre" -> nombre = siguienteValor(args, ++i, argumento);
                 case "--clase" -> clase = normalizarClase(siguienteValor(args, ++i, argumento));
                 case "--modo" -> modo = normalizarModo(siguienteValor(args, ++i, argumento));
+                case "--dificultad" -> dificultad = parsearDificultad(siguienteValor(args, ++i, argumento));
+                case "--dimensiones" -> dimensiones = parsearDimensiones(siguienteValor(args, ++i, argumento));
                 case "--datos" -> directorioDatos = Path.of(siguienteValor(args, ++i, argumento));
-                case "--aliados" -> conAliados = parsearSiNo(siguienteValor(args, ++i, argumento));
+                case "--aliados" -> cantidadAliados = parsearAliados(
+                        siguienteValor(args, ++i, argumento));
+                case "--nivel-aliados" -> nivelAliados = parsearNivelAliados(
+                        siguienteValor(args, ++i, argumento));
                 case "--victoria" -> condicionVictoria = parsearCondicionVictoria(
                         siguienteValor(args, ++i, argumento));
+                case "--variante" -> varianteMapa = parsearVariante(siguienteValor(args, ++i, argumento));
+                case "--seed" -> seed = parsearSeed(siguienteValor(args, ++i, argumento));
                 default -> throw new IllegalArgumentException("Opcion desconocida: " + argumento);
             }
         }
@@ -219,7 +262,8 @@ public final class OpcionesInicio {
             clase = clase == null ? "marine" : clase;
             modo = modo == null ? "default" : modo;
             dificultad = dificultad == null ? Dificultad.NORMAL : dificultad;
-            conAliados = conAliados == null ? Boolean.FALSE : conAliados;
+            cantidadAliados = cantidadAliados == null ? 0 : cantidadAliados;
+            nivelAliados = nivelAliados == null ? 0 : nivelAliados;
             condicionVictoria = condicionVictoria == null
                     ? CondicionVictoria.JUGADOR_Y_ALIADOS
                     : condicionVictoria;
@@ -229,9 +273,14 @@ public final class OpcionesInicio {
             }
         }
 
-        return new OpcionesInicio(nombre, clase, modo, dificultad, dimensiones,
-                directorioDatos, conAliados, condicionVictoria, varianteMapa,
+        OpcionesInicio opciones = new OpcionesInicio(nombre, clase, modo, dificultad, dimensiones,
+                directorioDatos, cantidadAliados == null ? null : cantidadAliados != 0,
+                condicionVictoria, varianteMapa,
                 rapido, mostrarAyuda, gui, editor);
+        opciones.setCantidadAliados(cantidadAliados);
+        opciones.setNivelAliados(nivelAliados);
+        opciones.setSeed(seed);
+        return opciones;
     }
 
     /** @return ayuda de la linea de comandos */
@@ -245,10 +294,16 @@ public final class OpcionesInicio {
                   --editor                  Abre directamente el editor grafico de mapas
                   --nombre <nombre>         Nombre del personaje
                   --clase <clase>           marine, francotirador o zapador
-                  --modo <modo>             default o ficheros
+                  --modo <modo>             default, grande, ficheros o procedural
+                  --dificultad <nivel>      muy_facil, facil, normal, dificil,
+                                            muy_dificil, pesadilla o demente
+                  --dimensiones <FxC>       Tamano del mapa; por ejemplo, 12x20
                   --datos <directorio>      Directorio con escenario.json o los tres ficheros TXT
-                  --aliados <si|no>         Activa o desactiva aliados calculados automaticamente
+                  --aliados <no|auto|N>     Sin aliados, calculados o cantidad exacta (1-1000)
+                  --nivel-aliados <auto|N>  Nivel automatico o exacto para todos (1-100)
                   --victoria <condicion>    solo_jugador o jugador_y_aliados
+                  --variante <1-50>         Variante determinista del mapa grande
+                  --seed <entero>           Semilla del modo procedural
                   --help, -h                Muestra esta ayuda
 
                 Las opciones indicadas reemplazan sus preguntas del asistente. Combina
@@ -277,7 +332,9 @@ public final class OpcionesInicio {
                 valor, "Modo", Limites.TEXTO_CORTO).toLowerCase(Locale.ROOT);
         return switch (normalizado) {
             case "1", "default" -> "default";
-            case "2", "ficheros" -> "ficheros";
+            case "2", "grande" -> "grande";
+            case "3", "ficheros" -> "ficheros";
+            case "4", "procedural" -> "procedural";
             default -> throw new IllegalArgumentException("Modo invalido: " + valor + ".");
         };
     }
@@ -302,12 +359,41 @@ public final class OpcionesInicio {
         }
     }
 
-    private static Boolean parsearSiNo(String valor) {
-        return switch (valor.trim().toLowerCase(Locale.ROOT)) {
-            case "si", "sí", "s", "true", "1" -> Boolean.TRUE;
-            case "no", "n", "false", "0" -> Boolean.FALSE;
-            default -> throw new IllegalArgumentException("Valor de aliados invalido: usa si o no.");
-        };
+    private static int parsearAliados(String valor) {
+        String normalizado = valor.trim().toLowerCase(Locale.ROOT);
+        if (normalizado.equals("si") || normalizado.equals("sí") || normalizado.equals("s")
+                || normalizado.equals("true") || normalizado.equals("auto")
+                || normalizado.equals("automatico") || normalizado.equals("automático")) {
+            return -1;
+        }
+        if (normalizado.equals("no") || normalizado.equals("n")
+                || normalizado.equals("false") || normalizado.equals("0")) {
+            return 0;
+        }
+        try {
+            return Validaciones.enteroEntre(Integer.parseInt(normalizado), 1,
+                    Limites.ALIADOS_MAXIMOS, "Cantidad de aliados");
+        } catch (NumberFormatException error) {
+            throw new IllegalArgumentException(
+                    "Valor de aliados invalido: usa no, auto o una cantidad entre 1 y "
+                            + Limites.ALIADOS_MAXIMOS + ".", error);
+        }
+    }
+
+    private static int parsearNivelAliados(String valor) {
+        String normalizado = valor.trim().toLowerCase(Locale.ROOT);
+        if (normalizado.equals("auto") || normalizado.equals("automatico")
+                || normalizado.equals("automático")) {
+            return 0;
+        }
+        try {
+            return Validaciones.enteroEntre(Integer.parseInt(normalizado), 1,
+                    Limites.NIVEL_ALIADO_MAXIMO, "Nivel de aliados");
+        } catch (NumberFormatException error) {
+            throw new IllegalArgumentException(
+                    "Nivel de aliados invalido: usa auto o un valor entre 1 y "
+                            + Limites.NIVEL_ALIADO_MAXIMO + ".", error);
+        }
     }
 
     private static CondicionVictoria parsearCondicionVictoria(String valor) {
@@ -324,6 +410,14 @@ public final class OpcionesInicio {
             return Validaciones.enteroEntre(Integer.parseInt(valor), 1, 50, "Variante");
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Variante invalida: " + valor + ".", e);
+        }
+    }
+
+    private static long parsearSeed(String valor) {
+        try {
+            return Long.parseLong(valor);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Seed invalida: " + valor + ".", e);
         }
     }
 }

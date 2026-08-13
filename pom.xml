@@ -15,7 +15,7 @@
         <junit.version>5.11.4</junit.version>
         <argLine></argLine>
         <!-- Linea base medida: debe subir de forma monotona con las suites por paquete. -->
-        <jacoco.minimum.line.coverage>0.37</jacoco.minimum.line.coverage>
+        <jacoco.minimum.line.coverage>0.70</jacoco.minimum.line.coverage>
     </properties>
 
     <dependencies>

@@ -11,11 +11,13 @@ import com.legendoftecla.model.items.Explosivo;
 import com.legendoftecla.model.items.Objeto;
 import com.legendoftecla.model.items.ToritoRojo;
 import com.legendoftecla.model.world.Celda;
+import com.legendoftecla.model.world.AmbientacionMapa;
 import com.legendoftecla.model.world.Direccion;
 import com.legendoftecla.model.world.Mapa;
 import com.legendoftecla.model.world.Posicion;
 import com.legendoftecla.validation.Limites;
 import com.legendoftecla.validation.Validaciones;
+import com.legendoftecla.engine.SistemaIluminacion;
 
 import java.util.stream.Collectors;
 
@@ -101,7 +103,14 @@ public class ComandoMirar implements Comando {
      */
     public void ejecutar() throws ComandoException {
         Celda celda = resolverCeldaAMirar();
-        context.getJuego().getConsola().imprimir(celda.getDescripcion());
+        Posicion observada = direccion == null
+                ? context.getJuego().getJugador().getPosicion()
+                : resolverPosicion(context.getJuego().getJugador().getPosicion());
+        if (!SistemaIluminacion.hayLuz(context.getJuego(), observada)) {
+            throw new ComandoException("La zona esta oscura; necesitas una linterna o una fuente de luz.");
+        }
+        context.getJuego().getConsola().imprimir(
+                AmbientacionMapa.describir(context.getJuego().getMapa(), observada));
         if (direccion == null) {
             context.getJuego().inspeccionarCeldaActual();
             if (detalle != null) {
@@ -178,6 +187,17 @@ public class ComandoMirar implements Comando {
             throw new ComandoException("No puedes mirar esa celda: destino no transitable.");
         }
 
+        if (!SistemaIluminacion.hayLuz(context.getJuego(), destino)) {
+            throw new ComandoException("La zona esta oscura; necesitas una linterna o una fuente de luz.");
+        }
         return mapa.getCelda(destino);
+    }
+
+    private Posicion resolverPosicion(Posicion origen) {
+        Posicion destino = origen;
+        for (int i = 0; i < pasos; i++) {
+            destino = destino.mover(direccion);
+        }
+        return destino;
     }
 }

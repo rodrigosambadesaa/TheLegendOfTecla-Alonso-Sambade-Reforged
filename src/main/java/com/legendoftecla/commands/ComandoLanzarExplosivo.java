@@ -1,9 +1,16 @@
 package com.legendoftecla.commands;
 
 import com.legendoftecla.exceptions.ComandoException;
+import com.legendoftecla.events.ObjetoUsado;
+import com.legendoftecla.events.PersonajeAtacado;
+import com.legendoftecla.events.PersonajeDanado;
+import com.legendoftecla.events.PersonajeMuerto;
+import com.legendoftecla.events.RuidoGenerado;
 import com.legendoftecla.model.characters.Enemigo;
 import com.legendoftecla.model.characters.Zapador;
 import com.legendoftecla.model.items.Explosivo;
+import com.legendoftecla.model.items.Granada;
+import com.legendoftecla.model.items.TipoGranada;
 import com.legendoftecla.model.items.Objeto;
 import com.legendoftecla.model.world.Celda;
 import com.legendoftecla.model.world.Direccion;
@@ -11,10 +18,13 @@ import com.legendoftecla.model.world.Mapa;
 import com.legendoftecla.model.world.Posicion;
 import com.legendoftecla.validation.Limites;
 import com.legendoftecla.validation.Validaciones;
+import com.legendoftecla.engine.SistemaIncendios;
+import com.legendoftecla.engine.ServicioBotinEnemigo;
 
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.concurrent.ThreadLocalRandom;
 
 /** Lanza y consume un explosivo contra todos los enemigos de una celda. */
 public final class ComandoLanzarExplosivo implements Comando {
@@ -62,11 +72,12 @@ public final class ComandoLanzarExplosivo implements Comando {
 
     @Override
     public void ejecutar() throws ComandoException {
-        if (!(context.getJuego().getJugador() instanceof Zapador)) {
-            throw new ComandoException("Solo el zapador puede lanzar explosivos.");
-        }
-
         Explosivo explosivo = buscarExplosivo();
+        if (!(context.getJuego().getJugador() instanceof Zapador)
+                && !(explosivo instanceof Granada)) {
+            throw new ComandoException(
+                    "Solo el zapador puede lanzar explosivos de demolicion.");
+        }
         Posicion origen = context.getJuego().getJugador().getPosicion();
         Posicion destino = resolverDestino(origen, explosivo.getAlcanceMaximo());
         Mapa mapa = context.getJuego().getMapa();
@@ -81,14 +92,59 @@ public final class ComandoLanzarExplosivo implements Comando {
         }
 
         context.getJuego().getJugador().getMochila().quitarPorNombre(explosivo.getNombre());
+        List<Integer> vidasAntes = objetivos.stream().map(Enemigo::getSalud).toList();
+        objetivos.forEach(enemigo -> context.getJuego().publicarEvento(new PersonajeAtacado(
+                context.getJuego().getBusEventos().ahora(),
+                context.getJuego().getJugador().getNombre(), enemigo.getNombre(), origen, destino)));
+        context.getJuego().publicarEvento(new ObjetoUsado(
+                context.getJuego().getBusEventos().ahora(),
+                context.getJuego().getJugador().getNombre(), explosivo.getNombre(), origen));
+        context.getJuego().publicarEvento(new RuidoGenerado(
+                context.getJuego().getBusEventos().ahora(), destino, 10, "explosion"));
         objetivos.forEach(enemigo -> enemigo.recibirDanio(explosivo.getDanio()));
+        com.legendoftecla.engine.SistemaDestruccion.danar(
+                context.getJuego(), destino, explosivo.getDanio());
         context.getJuego().getConsola().imprimir("Lanzas " + explosivo.getNombre() + " a " + destino
                 + " y causas " + explosivo.getDanio() + " de dano a " + objetivos.size() + " enemigo(s).");
+        for (int i = 0; i < objetivos.size(); i++) {
+            Enemigo enemigo = objetivos.get(i);
+            int quitada = vidasAntes.get(i) - enemigo.getSalud();
+            context.getJuego().getConsola().imprimir(context.getJuego().getJugador().getNombre()
+                    + " ataca a " + enemigo.getNombre() + " con " + explosivo.getNombre()
+                    + ": quita " + quitada + " de vida; quedan " + enemigo.getSalud()
+                    + "/" + enemigo.getSaludMaxima() + ".");
+            if (quitada > 0) {
+                context.getJuego().publicarEvento(new PersonajeDanado(
+                        context.getJuego().getBusEventos().ahora(), enemigo.getNombre(),
+                        quitada, destino));
+            }
+            if (vidasAntes.get(i) > 0 && enemigo.getSalud() <= 0) {
+                context.getJuego().publicarEvento(new PersonajeMuerto(
+                        context.getJuego().getBusEventos().ahora(), enemigo.getNombre(), destino));
+            }
+        }
+        SistemaIncendios.intentarDerribarAntorcha(
+                context.getJuego(), destino, ThreadLocalRandom.current());
+        aplicarEfectoGranada(explosivo, objetivos, destino);
 
         objetivos.stream().filter(enemigo -> enemigo.getSalud() <= 0).forEach(enemigo -> {
             celda.quitarEnemigo(enemigo);
-            enemigo.getMochila().getObjetos().forEach(celda::agregarObjeto);
+            ServicioBotinEnemigo.soltar(celda, enemigo);
         });
+    }
+
+    private void aplicarEfectoGranada(Explosivo explosivo,
+            List<Enemigo> objetivos, Posicion destino) {
+        if (!(explosivo instanceof Granada granada)) {
+            return;
+        }
+        if (granada.getTipo() == TipoGranada.INCENDIARIA) {
+            SistemaIncendios.iniciar(context.getJuego(), destino, 3);
+        } else if (granada.getTipo() == TipoGranada.ATURDIDORA) {
+            objetivos.stream().filter(enemigo -> enemigo.getSalud() > 0)
+                    .forEach(enemigo -> enemigo.getEstados().aplicar(
+                            new com.legendoftecla.effects.Aturdido()));
+        }
     }
 
     private Explosivo buscarExplosivo() throws ComandoException {

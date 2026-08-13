@@ -86,6 +86,10 @@ public final class SerializadorEscenarioJson {
         }
         for (EscenarioDefinicion.CeldaDef celda : escenario.getCeldas()) {
             validarPunto(escenario, celda, "celda");
+            if (celda.getElementoTipo() != null && !celda.getElementoTipo().isBlank()
+                    && (celda.getElementoId() == null || celda.getElementoId().isBlank())) {
+                throw new JuegoException("Cada elemento de mapa necesita un ID.");
+            }
         }
         for (EscenarioDefinicion.PersonajeDef enemigo : escenario.getEnemigos()) {
             validarPersonaje(escenario, enemigo, "enemigo");
@@ -95,6 +99,7 @@ public final class SerializadorEscenarioJson {
             if (objeto.getNombre().isBlank() || objeto.getPeso() < 0) {
                 throw new JuegoException("Todos los objetos necesitan nombre y peso no negativo.");
             }
+            validarMunicion(objeto);
         }
         EscenarioDefinicion.CeldaDef inicio = escenario.celda(
                 escenario.getInicio().getFila(), escenario.getInicio().getColumna());
@@ -104,6 +109,164 @@ public final class SerializadorEscenarioJson {
                 || (objetivo != null && !objetivo.isTransitable())) {
             throw new JuegoException("Las celdas de inicio y objetivo deben ser transitables.");
         }
+        java.util.List<String> ids = escenario.getCeldas().stream()
+                .map(EscenarioDefinicion.CeldaDef::getElementoId)
+                .filter(java.util.Objects::nonNull).filter(id -> !id.isBlank()).toList();
+        if (ids.stream().distinct().count() != ids.size()) {
+            throw new JuegoException("Los IDs de elementos no pueden estar duplicados.");
+        }
+        java.util.Set<String> idsConocidos = new java.util.HashSet<>(ids);
+        java.util.Set<String> tipos = java.util.Set.of("puerta", "terminal", "interruptor",
+                "cofre", "barricada", "cobertura", "mina", "trampa",
+                "trampa_fuego", "trampa_veneno", "trampa_electrica", "alarma",
+                "pared_debil", "pareddebil");
+        for (EscenarioDefinicion.CeldaDef celda : escenario.getCeldas()) {
+            String tipo = celda.getElementoTipo();
+            if (tipo == null || tipo.isBlank()) continue;
+            String normalizado = tipo.toLowerCase(java.util.Locale.ROOT);
+            if (!tipos.contains(normalizado)) {
+                throw new JuegoException("Tipo de elemento desconocido: " + tipo);
+            }
+            if ((normalizado.equals("terminal") || normalizado.equals("interruptor"))
+                    && celda.getReferencia() != null && !celda.getReferencia().isBlank()
+                    && !idsConocidos.contains(celda.getReferencia())) {
+                throw new JuegoException("Referencia de elemento inexistente: "
+                        + celda.getReferencia());
+            }
+            if (normalizado.equals("puerta") && celda.getElementoEstado() != null) {
+                try {
+                    com.legendoftecla.model.elements.EstadoPuerta.valueOf(
+                            celda.getElementoEstado().toUpperCase(java.util.Locale.ROOT));
+                } catch (IllegalArgumentException error) {
+                    throw new JuegoException("Estado de puerta invalido: "
+                            + celda.getElementoEstado());
+                }
+            }
+        }
+        validarMision(escenario, idsConocidos);
+        validarConectividad(escenario);
+    }
+
+    private static void validarMision(EscenarioDefinicion escenario,
+            java.util.Set<String> idsConocidos) throws JuegoException {
+        EscenarioDefinicion.MisionDef mision = escenario.getMision();
+        if (mision == null) return;
+        java.util.List<EscenarioDefinicion.ObjetivoDef> objetivos = new java.util.ArrayList<>();
+        objetivos.add(mision.getPrincipal());
+        objetivos.addAll(mision.getSecundarios());
+        java.util.Set<String> tipos = java.util.Set.of("alcanzar_salida", "salida",
+                "eliminar_enemigo", "eliminar_jefe", "rescatar", "recuperar_objeto",
+                "activar_terminal", "sobrevivir_turnos", "escoltar", "apagar_incendio",
+                "no_perder_aliados", "sin_disparar");
+        for (EscenarioDefinicion.ObjetivoDef objetivo : objetivos) {
+            String tipo = objetivo.getTipo().toLowerCase(java.util.Locale.ROOT);
+            if (!tipos.contains(tipo)) {
+                throw new JuegoException("Tipo de objetivo desconocido: " + objetivo.getTipo());
+            }
+            boolean necesitaArgumento = java.util.Set.of("eliminar_enemigo", "eliminar_jefe",
+                    "rescatar", "recuperar_objeto", "activar_terminal", "escoltar").contains(tipo);
+            if (necesitaArgumento && objetivo.getArgumento().isBlank()) {
+                throw new JuegoException("El objetivo " + tipo + " necesita argumento.");
+            }
+            if (tipo.equals("activar_terminal") && !idsConocidos.contains(objetivo.getArgumento())) {
+                throw new JuegoException("Terminal de objetivo inexistente: "
+                        + objetivo.getArgumento());
+            }
+            if (tipo.equals("sobrevivir_turnos") && objetivo.getValor() < 1) {
+                throw new JuegoException("Sobrevivir turnos necesita un valor positivo.");
+            }
+            if (objetivo.getPosicion() != null) {
+                validarPunto(escenario, objetivo.getPosicion(), "objetivo de mision");
+            }
+        }
+    }
+
+    private static void validarMunicion(EscenarioDefinicion.ObjetoDef objeto)
+            throws JuegoException {
+        boolean esArma = "arma".equalsIgnoreCase(objeto.getTipo());
+        boolean esMunicion = "municion".equalsIgnoreCase(objeto.getTipo());
+        if (!esArma && !esMunicion) {
+            if ("granada".equalsIgnoreCase(objeto.getTipo())) {
+                validarTipoGranada(objeto);
+            }
+            return;
+        }
+        if (objeto.getTipoMunicion() == null || objeto.getTipoMunicion().isBlank()) {
+            if (esMunicion) {
+                throw new JuegoException("La municion necesita tipoMunicion.");
+            }
+            if (objeto.getCategoriaArma() != null
+                    && !objeto.getCategoriaArma().isBlank()) {
+                throw new JuegoException(
+                        "Un arma con categoria explicita necesita tipoMunicion.");
+            }
+            return;
+        }
+        com.legendoftecla.model.items.TipoMunicion tipo;
+        try {
+            tipo = com.legendoftecla.model.items.TipoMunicion.valueOf(
+                    objeto.getTipoMunicion().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException error) {
+            throw new JuegoException("Tipo de municion invalido: "
+                    + objeto.getTipoMunicion());
+        }
+        if (esMunicion && (tipo == com.legendoftecla.model.items.TipoMunicion.INFINITA
+                || objeto.getCantidad() <= 0)) {
+            throw new JuegoException("El paquete de municion debe ser finito y no vacio.");
+        }
+        if (esArma && tipo != com.legendoftecla.model.items.TipoMunicion.INFINITA
+                && (objeto.getCapacidadCargador() <= 0
+                        || objeto.getMunicionActual() > objeto.getCapacidadCargador())) {
+            throw new JuegoException("El cargador del arma es invalido.");
+        }
+        if (esArma && objeto.getCategoriaArma() != null
+                && !objeto.getCategoriaArma().isBlank()) {
+            try {
+                new com.legendoftecla.model.items.Arma("validacion", "", 0, 1,
+                        objeto.isDosManos(),
+                        com.legendoftecla.model.items.CategoriaArma.valueOf(
+                                objeto.getCategoriaArma().toUpperCase(java.util.Locale.ROOT)),
+                        tipo, objeto.getCapacidadCargador(), objeto.getMunicionActual());
+            } catch (IllegalArgumentException error) {
+                throw new JuegoException("Categoria de arma incompatible: "
+                        + objeto.getCategoriaArma());
+            }
+        }
+    }
+
+    private static void validarTipoGranada(EscenarioDefinicion.ObjetoDef objeto)
+            throws JuegoException {
+        if (objeto.getTipoGranada() == null || objeto.getTipoGranada().isBlank()) {
+            return;
+        }
+        try {
+            com.legendoftecla.model.items.TipoGranada.valueOf(
+                    objeto.getTipoGranada().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException error) {
+            throw new JuegoException("Tipo de granada invalido: " + objeto.getTipoGranada());
+        }
+    }
+
+    private static void validarConectividad(EscenarioDefinicion escenario) throws JuegoException {
+        java.util.Set<String> bloqueadas = escenario.getCeldas().stream()
+                .filter(c -> !c.isTransitable()).map(c -> c.getFila() + ":" + c.getColumna())
+                .collect(java.util.stream.Collectors.toSet());
+        java.util.ArrayDeque<EscenarioDefinicion.Punto> pendientes = new java.util.ArrayDeque<>();
+        java.util.Set<String> visitadas = new java.util.HashSet<>();
+        pendientes.add(escenario.getInicio());
+        while (!pendientes.isEmpty()) {
+            EscenarioDefinicion.Punto actual = pendientes.remove();
+            String clave = actual.getFila() + ":" + actual.getColumna();
+            if (!visitadas.add(clave) || bloqueadas.contains(clave)) continue;
+            for (int[] d : new int[][]{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) {
+                int f = actual.getFila() + d[0]; int c = actual.getColumna() + d[1];
+                if (f >= 0 && f < escenario.getFilas() && c >= 0 && c < escenario.getColumnas()) {
+                    pendientes.add(new EscenarioDefinicion.Punto(f, c));
+                }
+            }
+        }
+        String objetivo = escenario.getObjetivo().getFila() + ":" + escenario.getObjetivo().getColumna();
+        if (!visitadas.contains(objetivo)) throw new JuegoException("El objetivo no es alcanzable.");
     }
 
     private static void validarPersonaje(EscenarioDefinicion escenario,

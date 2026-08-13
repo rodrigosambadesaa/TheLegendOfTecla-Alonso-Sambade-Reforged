@@ -1,8 +1,8 @@
 package com.legendoftecla.commands;
 
 import com.legendoftecla.exceptions.ComandoException;
-import com.legendoftecla.constants.FormacionAliada;
 import com.legendoftecla.model.world.Direccion;
+import com.legendoftecla.constants.FormacionAliada;
 import com.legendoftecla.validation.Limites;
 import com.legendoftecla.validation.Validaciones;
 
@@ -98,6 +98,12 @@ public class CommandParser {
         registrar(comandos, this::parseMirar, "mirar");
         registrar(comandos, partes -> new ComandoInventario(context), "inventario", "mochila");
         registrar(comandos, partes -> new ComandoRecorrido(context), "recorrido");
+        registrar(comandos, partes -> {
+            if (partes.length != 1) {
+                throw new ComandoException("Uso: descansar");
+            }
+            return new ComandoDescansar(context);
+        }, "descansar", "reposar");
         registrar(comandos, this::parseMover, "mover", "avanzar");
         registrar(comandos, partes -> {
             requiereArg(partes);
@@ -107,10 +113,7 @@ public class CommandParser {
             requiereArg(partes);
             return new ComandoTirar(context, unir(partes, 1));
         }, "tirar");
-        registrar(comandos, partes -> {
-            requiereArg(partes);
-            return new ComandoUsar(context, unir(partes, 1));
-        }, "usar");
+        registrar(comandos, this::parseUsar, "usar");
         registrar(comandos, this::parseEquipar, "equipar");
         registrar(comandos, partes -> {
             requiereArg(partes);
@@ -120,8 +123,50 @@ public class CommandParser {
         registrar(comandos, this::parseLanzarExplosivo, "lanzar");
         registrar(comandos, partes -> {
             requiereArg(partes);
+            if ("partida".equalsIgnoreCase(partes[1])) {
+                String archivo = partes.length > 2 ? unir(partes, 2) : "partida.json";
+                return new ComandoCargarPartida(context, archivo);
+            }
             return new ComandoCargar(context, unir(partes, 1));
         }, "cargar");
+        registrar(comandos, partes -> {
+            if (partes.length < 2 || !"partida".equalsIgnoreCase(partes[1])) {
+                throw new ComandoException("Uso: guardar partida [archivo]");
+            }
+            return new ComandoGuardarPartida(context,
+                    partes.length > 2 ? unir(partes, 2) : "partida.json");
+        }, "guardar");
+        registrar(comandos, partes -> new ComandoRecargar(context,
+                partes.length > 1 ? unir(partes, 1) : null), "recargar");
+        registrar(comandos, partes -> {
+            if (partes.length == 2 && "arma".equalsIgnoreCase(partes[1])) {
+                return new ComandoEstadoArma(context);
+            }
+            throw new ComandoException("Uso: estado arma");
+        }, "estado");
+        registrar(comandos, this::parsePedir, "pedir");
+        registrar(comandos, partes -> parseTransferencia(partes,
+                ComandoTransferir.Operacion.DAR), "dar");
+        registrar(comandos, partes -> parseTransferencia(partes,
+                ComandoTransferir.Operacion.INTERCAMBIAR), "intercambiar");
+        registrar(comandos, partes -> new ComandoFabricar(context,
+                partes.length > 1 ? unir(partes, 1) : null), "fabricar");
+        registrar(comandos, partes -> new ComandoFabricar(context, null), "recetas");
+        registrar(comandos, partes -> new ComandoEstadisticas(context),
+                "estadisticas", "logros");
+        registrar(comandos, partes -> new ComandoPuerta(context, true), "abrir");
+        registrar(comandos, partes -> new ComandoPuerta(context, false), "cerrar");
+        registrar(comandos, partes -> new ComandoTrampa(
+                context, ComandoTrampa.Operacion.DETECTAR), "inspeccionar");
+        registrar(comandos, partes -> new ComandoTrampa(
+                context, ComandoTrampa.Operacion.DESACTIVAR), "desactivar");
+        registrar(comandos, partes -> new ComandoTrampa(
+                context, ComandoTrampa.Operacion.DETONAR), "detonar");
+        registrar(comandos, partes -> new ComandoTrampa(
+                context, ComandoTrampa.Operacion.DISPARAR), "disparar");
+        registrar(comandos, partes -> new ComandoTerminal(context, true), "hackear");
+        registrar(comandos, partes -> new ComandoTerminal(context, false), "activar");
+        registrar(comandos, partes -> new ComandoPedirAyuda(context), "socorro", "asistir");
         registrar(comandos, this::parseReagrupar, "reagrupar", "formacion");
         registrar(comandos, partes -> new ComandoSalir(), "salir");
         return Map.copyOf(comandos);
@@ -243,6 +288,43 @@ public class CommandParser {
             throw new ComandoException("Uso: lanzar <distancia><direccion> <explosivo>");
         }
         return new ComandoLanzarExplosivo(context, partes[1], unir(partes, 2));
+    }
+
+    private Comando parsePedirAyuda(String[] partes) throws ComandoException {
+        if (partes.length != 2 || !"ayuda".equalsIgnoreCase(partes[1])) {
+            throw new ComandoException("Uso: pedir ayuda");
+        }
+        return new ComandoPedirAyuda(context);
+    }
+
+    private Comando parseUsar(String[] partes) throws ComandoException {
+        requiereArg(partes);
+        if (partes.length == 2 && ("llave".equalsIgnoreCase(partes[1])
+                || "tarjeta".equalsIgnoreCase(partes[1]))) {
+            return new ComandoPuerta(context, true);
+        }
+        return new ComandoUsar(context, unir(partes, 1));
+    }
+
+    private Comando parsePedir(String[] partes) throws ComandoException {
+        if (partes.length == 2 && ("ayuda".equalsIgnoreCase(partes[1])
+                || "auxilio".equalsIgnoreCase(partes[1]))) {
+            return parsePedirAyuda(partes);
+        }
+        return parseTransferencia(partes, ComandoTransferir.Operacion.PEDIR);
+    }
+
+    private Comando parseTransferencia(String[] partes,
+            ComandoTransferir.Operacion operacion) throws ComandoException {
+        int esperadas = operacion == ComandoTransferir.Operacion.INTERCAMBIAR ? 4 : 3;
+        if (partes.length != esperadas) {
+            throw new ComandoException(operacion == ComandoTransferir.Operacion.INTERCAMBIAR
+                    ? "Uso: intercambiar <objeto1> <objeto2> <aliado>"
+                    : "Uso: " + partes[0] + " <objeto> <aliado>");
+        }
+        return new ComandoTransferir(context, operacion, partes[1],
+                operacion == ComandoTransferir.Operacion.INTERCAMBIAR ? partes[2] : null,
+                partes[esperadas - 1]);
     }
 
     private Comando parseReagrupar(String[] partes) throws ComandoException {

@@ -3,6 +3,7 @@ package com.legendoftecla.model.world;
 import com.legendoftecla.model.characters.Enemigo;
 import com.legendoftecla.model.characters.Aliado;
 import com.legendoftecla.model.items.Objeto;
+import com.legendoftecla.model.elements.ElementoMapa;
 import com.legendoftecla.validation.Limites;
 import com.legendoftecla.validation.Validaciones;
 
@@ -20,6 +21,13 @@ public class Celda {
     private List<Objeto> objetos;
     private List<Enemigo> enemigos;
     private List<Aliado> aliados;
+    private TipoSuelo tipoSuelo;
+    private boolean oscura;
+    private boolean oscuridadPermanente;
+    private boolean antorchaMural;
+    private boolean fuenteAgua;
+    private int nivelFuego;
+    private List<ElementoMapa> elementos;
 
     /**
      * Ejecuta Celda.
@@ -32,7 +40,37 @@ public class Celda {
         setObjetos(List.of());
         setEnemigos(List.of());
         setAliados(List.of());
+        setTipoSuelo(TipoSuelo.PIEDRA);
+        setOscura(false);
+        setOscuridadPermanente(false);
+        setAntorchaMural(false);
+        setFuenteAgua(false);
+        setNivelFuego(0);
+        setElementos(List.of());
     }
+
+    public TipoSuelo getTipoSuelo() { return tipoSuelo; }
+    public void setTipoSuelo(TipoSuelo tipoSuelo) {
+        this.tipoSuelo = Validaciones.noNulo(tipoSuelo, "Tipo de suelo");
+    }
+    public boolean isOscura() { return oscura; }
+    public void setOscura(boolean oscura) { this.oscura = oscura; }
+    public boolean isOscuridadPermanente() { return oscuridadPermanente; }
+    public void setOscuridadPermanente(boolean oscuridadPermanente) {
+        this.oscuridadPermanente = oscuridadPermanente;
+        if (oscuridadPermanente) setOscura(true);
+    }
+    public boolean hasAntorchaMural() { return antorchaMural; }
+    public boolean isAntorchaMural() { return antorchaMural; }
+    public void setAntorchaMural(boolean antorchaMural) { this.antorchaMural = antorchaMural; }
+    public boolean hasFuenteAgua() { return fuenteAgua; }
+    public boolean isFuenteAgua() { return fuenteAgua; }
+    public void setFuenteAgua(boolean fuenteAgua) { this.fuenteAgua = fuenteAgua; }
+    public int getNivelFuego() { return nivelFuego; }
+    public void setNivelFuego(int nivelFuego) {
+        this.nivelFuego = Validaciones.enteroEntre(nivelFuego, 0, 3, "Nivel de fuego");
+    }
+    public boolean estaArdiendo() { return nivelFuego > 0; }
 
     /**
      * Ejecuta getDescripcion.
@@ -53,7 +91,7 @@ public class Celda {
       * @return resultado de la operacion
      */
     public boolean isTransitable() {
-        return transitable;
+        return transitable && elementos.stream().allMatch(ElementoMapa::permitePaso);
     }
 
     /** @param transitable estado solicitado */
@@ -83,6 +121,36 @@ public class Celda {
      */
     public List<Aliado> getAliados() {
         return Collections.unmodifiableList(aliados);
+    }
+    /** @return transitabilidad del terreno sin elementos dinamicos */
+    public boolean isTerrenoTransitable() { return transitable; }
+
+    /** @return elementos interactivos presentes */
+    public List<ElementoMapa> getElementos() { return Collections.unmodifiableList(elementos); }
+    /** @param elementos elementos no nulos y con IDs unicos */
+    public void setElementos(List<ElementoMapa> elementos) {
+        List<ElementoMapa> copia = copiarValidada(elementos, "Elementos");
+        if (copia.stream().map(ElementoMapa::getId).distinct().count() != copia.size()) {
+            throw new IllegalArgumentException("Los IDs de elementos deben ser unicos por celda.");
+        }
+        this.elementos = copia;
+    }
+    /** Agrega un elemento si no existe su identidad. */
+    public void agregarElemento(ElementoMapa elemento) {
+        List<ElementoMapa> nuevos = new ArrayList<>(elementos);
+        if (nuevos.stream().noneMatch(actual -> actual.getId().equals(elemento.getId()))) {
+            nuevos.add(Validaciones.noNulo(elemento, "Elemento"));
+            setElementos(nuevos);
+        }
+    }
+    /** @return si la celda interrumpe vision o linea de tiro */
+    public boolean bloqueaVision() {
+        return !transitable || elementos.stream().anyMatch(ElementoMapa::bloqueaVision);
+    }
+    /** @return simbolo de elemento prioritario, o cero si no existe */
+    public char simboloElemento() {
+        return elementos.stream().filter(elemento -> !elemento.estaDestruido())
+                .map(ElementoMapa::simbolo).findFirst().orElse((char) 0);
     }
 
     /** @param objetos contenido de objetos no nulo */

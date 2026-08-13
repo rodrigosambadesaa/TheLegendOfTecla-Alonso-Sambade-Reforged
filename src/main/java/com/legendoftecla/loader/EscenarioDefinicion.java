@@ -21,6 +21,7 @@ public class EscenarioDefinicion {
     private List<CeldaDef> celdas;
     private List<PersonajeDef> enemigos;
     private List<ObjetoDef> objetos;
+    private MisionDef mision;
 
     /** Crea una definicion con los valores predeterminados del editor. */
     public EscenarioDefinicion() {
@@ -36,6 +37,7 @@ public class EscenarioDefinicion {
         setCeldas(List.of());
         setEnemigos(List.of());
         setObjetos(List.of());
+        setMision(null);
     }
 
     /**
@@ -74,9 +76,11 @@ public class EscenarioDefinicion {
         setCeldas(celdas == null ? List.of() : celdas);
         setEnemigos(enemigos == null ? List.of() : enemigos);
         setObjetos(objetos == null ? List.of() : objetos);
+        setMision(mision);
         this.celdas.forEach(CeldaDef::normalizar);
         this.enemigos.forEach(PersonajeDef::normalizar);
         this.objetos.forEach(ObjetoDef::normalizar);
+        if (this.mision != null) this.mision.normalizar();
     }
 
     /**
@@ -164,6 +168,11 @@ public class EscenarioDefinicion {
     public void setConAliados(boolean conAliados) {
         this.conAliados = conAliados;
     }
+
+    /** @return mision opcional definida por el escenario */
+    public MisionDef getMision() { return mision; }
+    /** @param mision mision opcional; {@code null} conserva la victoria historica */
+    public void setMision(MisionDef mision) { this.mision = mision; }
 
     /** @return punto de inicio */
     public Punto getInicio() {
@@ -323,11 +332,33 @@ public class EscenarioDefinicion {
     public static class CeldaDef extends Punto {
         private String descripcion;
         private boolean transitable;
+        private boolean oscura;
+        private boolean sueloMadera;
+        private boolean antorchaMural;
+        private boolean fuenteAgua;
+        private int nivelFuego;
+        private String elementoTipo;
+        private String elementoId;
+        private String elementoEstado;
+        private String referencia;
+        private int resistencia;
+        private int dificultad;
 
         /** Crea una celda predeterminada. */
         public CeldaDef() {
             setDescripcion("Celda");
             setTransitable(true);
+            setOscura(false);
+            setSueloMadera(false);
+            setAntorchaMural(false);
+            setFuenteAgua(false);
+            setNivelFuego(0);
+            setElementoTipo(null);
+            setElementoId(null);
+            setElementoEstado(null);
+            setReferencia(null);
+            setResistencia(10);
+            setDificultad(5);
         }
 
         /**
@@ -339,7 +370,9 @@ public class EscenarioDefinicion {
          * @param transitable transitabilidad
          */
         public CeldaDef(int fila, int columna, String descripcion, boolean transitable) {
-            super(fila, columna);
+            this();
+            setFila(fila);
+            setColumna(columna);
             setDescripcion(descripcion);
             setTransitable(transitable);
         }
@@ -364,10 +397,48 @@ public class EscenarioDefinicion {
             this.transitable = transitable;
         }
 
+        public boolean isOscura() { return oscura; }
+        public void setOscura(boolean oscura) { this.oscura = oscura; }
+        public boolean isSueloMadera() { return sueloMadera; }
+        public void setSueloMadera(boolean sueloMadera) { this.sueloMadera = sueloMadera; }
+        public boolean hasAntorchaMural() { return antorchaMural; }
+        public boolean isAntorchaMural() { return antorchaMural; }
+        public void setAntorchaMural(boolean antorchaMural) { this.antorchaMural = antorchaMural; }
+        public boolean hasFuenteAgua() { return fuenteAgua; }
+        public boolean isFuenteAgua() { return fuenteAgua; }
+        public void setFuenteAgua(boolean fuenteAgua) { this.fuenteAgua = fuenteAgua; }
+        public int getNivelFuego() { return nivelFuego; }
+        public void setNivelFuego(int nivelFuego) {
+            this.nivelFuego = Validaciones.enteroEntre(nivelFuego, 0, 3, "Nivel de fuego");
+        }
+        public String getElementoTipo() { return elementoTipo; }
+        public void setElementoTipo(String elementoTipo) { this.elementoTipo = elementoTipo; }
+        public String getElementoId() { return elementoId; }
+        public void setElementoId(String elementoId) { this.elementoId = elementoId; }
+        public String getElementoEstado() { return elementoEstado; }
+        public void setElementoEstado(String elementoEstado) { this.elementoEstado = elementoEstado; }
+        public String getReferencia() { return referencia; }
+        public void setReferencia(String referencia) { this.referencia = referencia; }
+        public int getResistencia() { return resistencia; }
+        public void setResistencia(int resistencia) { this.resistencia = Math.max(1, resistencia); }
+        public int getDificultad() { return dificultad; }
+        public void setDificultad(int dificultad) { this.dificultad = Math.max(0, dificultad); }
+
         void normalizar() {
             super.normalizar();
             setDescripcion(descripcion == null ? "" : descripcion);
             setTransitable(transitable);
+            setOscura(oscura);
+            setSueloMadera(sueloMadera);
+            setAntorchaMural(antorchaMural);
+            setFuenteAgua(fuenteAgua);
+            setNivelFuego(nivelFuego);
+            setElementoTipo(elementoTipo);
+            setElementoId(elementoId);
+            setElementoEstado(elementoEstado);
+            setReferencia(referencia);
+            setResistencia(resistencia <= 0 ? 10 : resistencia);
+            setDificultad(dificultad);
         }
     }
 
@@ -458,6 +529,12 @@ public class EscenarioDefinicion {
         private int valorSecundario;
         private int valorTerciario;
         private boolean dosManos;
+        private String tipoMunicion;
+        private int capacidadCargador;
+        private int municionActual;
+        private int cantidad;
+        private String categoriaArma;
+        private String tipoGranada;
 
         /** Crea una definicion de objeto predeterminada. */
         public ObjetoDef() {
@@ -469,6 +546,12 @@ public class EscenarioDefinicion {
             setValorSecundario(0);
             setValorTerciario(0);
             setDosManos(false);
+            setTipoMunicion(null);
+            setCapacidadCargador(0);
+            setMunicionActual(0);
+            setCantidad(0);
+            setCategoriaArma(null);
+            setTipoGranada(null);
         }
 
         /** @return tipo */
@@ -553,6 +636,40 @@ public class EscenarioDefinicion {
             this.dosManos = dosManos;
         }
 
+        /** @return familia de municion opcional */
+        public String getTipoMunicion() { return tipoMunicion; }
+        /** @param tipoMunicion familia opcional compatible con {@code TipoMunicion} */
+        public void setTipoMunicion(String tipoMunicion) { this.tipoMunicion = tipoMunicion; }
+        /** @return capacidad de cargador, cero para objetos antiguos */
+        public int getCapacidadCargador() { return capacidadCargador; }
+        /** @param capacidadCargador capacidad no negativa */
+        public void setCapacidadCargador(int capacidadCargador) {
+            this.capacidadCargador = Validaciones.enteroEntre(
+                    capacidadCargador, 0, Limites.ESTADISTICA, "Capacidad de cargador");
+        }
+        /** @return proyectiles cargados */
+        public int getMunicionActual() { return municionActual; }
+        /** @param municionActual proyectiles cargados no negativos */
+        public void setMunicionActual(int municionActual) {
+            this.municionActual = Validaciones.enteroEntre(
+                    municionActual, 0, Limites.ESTADISTICA, "Municion actual");
+        }
+        /** @return cantidad del paquete de municion */
+        public int getCantidad() { return cantidad; }
+        /** @param cantidad cantidad no negativa */
+        public void setCantidad(int cantidad) {
+            this.cantidad = Validaciones.enteroEntre(
+                    cantidad, 0, Limites.ESTADISTICA, "Cantidad");
+        }
+        /** @return categoria opcional del arma */
+        public String getCategoriaArma() { return categoriaArma; }
+        /** @param categoriaArma categoria opcional compatible con {@code CategoriaArma} */
+        public void setCategoriaArma(String categoriaArma) { this.categoriaArma = categoriaArma; }
+        /** @return variante opcional de granada */
+        public String getTipoGranada() { return tipoGranada; }
+        /** @param tipoGranada variante opcional compatible con {@code TipoGranada} */
+        public void setTipoGranada(String tipoGranada) { this.tipoGranada = tipoGranada; }
+
         void normalizar() {
             super.normalizar();
             setTipo(tipo);
@@ -563,6 +680,100 @@ public class EscenarioDefinicion {
             setValorSecundario(valorSecundario);
             setValorTerciario(valorTerciario);
             setDosManos(dosManos);
+            setTipoMunicion(tipoMunicion);
+            setCapacidadCargador(capacidadCargador);
+            setMunicionActual(municionActual);
+            setCantidad(cantidad);
+            setCategoriaArma(categoriaArma);
+            setTipoGranada(tipoGranada);
+        }
+    }
+
+    /** Mision serializable con objetivo principal, secundarios y recompensas. */
+    public static class MisionDef {
+        private String id;
+        private String nombre;
+        private ObjetivoDef principal;
+        private List<ObjetivoDef> secundarios;
+        private List<String> recompensas;
+
+        public MisionDef() {
+            setId("mision");
+            setNombre("Mision tactica");
+            setPrincipal(new ObjetivoDef());
+            setSecundarios(List.of());
+            setRecompensas(List.of());
+        }
+        public String getId() { return id; }
+        public void setId(String id) {
+            this.id = Validaciones.textoObligatorio(id, "ID de mision", Limites.TEXTO_CORTO);
+        }
+        public String getNombre() { return nombre; }
+        public void setNombre(String nombre) {
+            this.nombre = Validaciones.textoObligatorio(
+                    nombre, "Nombre de mision", Limites.TEXTO_CORTO);
+        }
+        public ObjetivoDef getPrincipal() { return principal; }
+        public void setPrincipal(ObjetivoDef principal) {
+            this.principal = Validaciones.noNulo(principal, "Objetivo principal");
+        }
+        public List<ObjetivoDef> getSecundarios() {
+            return Collections.unmodifiableList(secundarios);
+        }
+        public void setSecundarios(List<ObjetivoDef> secundarios) {
+            this.secundarios = new ArrayList<>(Validaciones.noNulo(
+                    secundarios, "Objetivos secundarios"));
+        }
+        public List<String> getRecompensas() { return Collections.unmodifiableList(recompensas); }
+        public void setRecompensas(List<String> recompensas) {
+            this.recompensas = new ArrayList<>(Validaciones.noNulo(recompensas, "Recompensas"));
+        }
+        void normalizar() {
+            setId(id == null ? "mision" : id);
+            setNombre(nombre == null ? "Mision tactica" : nombre);
+            setPrincipal(principal == null ? new ObjetivoDef() : principal);
+            setSecundarios(secundarios == null ? List.of() : secundarios);
+            setRecompensas(recompensas == null ? List.of() : recompensas);
+            principal.normalizar();
+            secundarios.forEach(ObjetivoDef::normalizar);
+        }
+    }
+
+    /** Objetivo serializable; argumento, valor y posicion se interpretan segun el tipo. */
+    public static class ObjetivoDef {
+        private String tipo;
+        private String argumento;
+        private int valor;
+        private Punto posicion;
+
+        public ObjetivoDef() {
+            setTipo("alcanzar_salida");
+            setArgumento("");
+            setValor(1);
+            setPosicion(null);
+        }
+        public String getTipo() { return tipo; }
+        public void setTipo(String tipo) {
+            this.tipo = Validaciones.textoObligatorio(
+                    tipo, "Tipo de objetivo", Limites.TEXTO_CORTO);
+        }
+        public String getArgumento() { return argumento; }
+        public void setArgumento(String argumento) {
+            this.argumento = Validaciones.texto(
+                    argumento == null ? "" : argumento, "Argumento de objetivo", Limites.TEXTO_CORTO);
+        }
+        public int getValor() { return valor; }
+        public void setValor(int valor) {
+            this.valor = Validaciones.enteroEntre(valor, 0, Limites.PASOS_MAXIMOS,
+                    "Valor de objetivo");
+        }
+        public Punto getPosicion() { return posicion; }
+        public void setPosicion(Punto posicion) { this.posicion = posicion; }
+        void normalizar() {
+            setTipo(tipo == null ? "alcanzar_salida" : tipo);
+            setArgumento(argumento);
+            setValor(valor);
+            if (posicion != null) posicion.normalizar();
         }
     }
 }

@@ -5,9 +5,19 @@ import com.legendoftecla.commands.CommandParser;
 import com.legendoftecla.commands.Comando;
 import com.legendoftecla.commands.ComandoRecorrido;
 import com.legendoftecla.commands.ComandoSalir;
+import com.legendoftecla.commands.ComandoDescansar;
 import com.legendoftecla.constants.FormacionAliada;
 import com.legendoftecla.console.TipoMensaje;
+import com.legendoftecla.audio.EventoSonido;
+import com.legendoftecla.audio.GestorSonido;
+import com.legendoftecla.audio.SuscriptorAudioEventos;
+import com.legendoftecla.ai.EnemigoTactico;
+import com.legendoftecla.ai.SistemaTurnosIA;
+import com.legendoftecla.ai.SistemaRuido;
 import com.legendoftecla.exceptions.ComandoException;
+import com.legendoftecla.events.MisionCompletada;
+import com.legendoftecla.inventory.CooperacionInventario;
+import com.legendoftecla.inventory.ServicioRecarga;
 import com.legendoftecla.model.characters.Aliado;
 import com.legendoftecla.model.characters.Enemigo;
 import com.legendoftecla.model.characters.Personaje;
@@ -18,6 +28,8 @@ import com.legendoftecla.model.items.Botiquin;
 import com.legendoftecla.model.items.Explosivo;
 import com.legendoftecla.model.items.Objeto;
 import com.legendoftecla.model.items.ToritoRojo;
+import com.legendoftecla.model.items.Linterna;
+import com.legendoftecla.model.items.CuboAgua;
 import com.legendoftecla.model.world.Direccion;
 import com.legendoftecla.model.world.Celda;
 import com.legendoftecla.model.world.Juego;
@@ -48,9 +60,13 @@ public final class MotorPartida {
     private Map<Aliado, SituacionAliado> situacionesAliados;
     private Map<Aliado, Boolean> aliadosEnCombate;
     private boolean finalizada;
+    private boolean modoEspectador;
     private SistemaPuntuacion.EstadoFinalPartida estadoFinal;
     private int turnosAyudaAliados;
     private boolean avisoRescateEnergia;
+    private boolean cooperacionInventarioActiva;
+    private SistemaTurnosIA sistemaTurnosIA;
+    private SistemaRuido sistemaRuido;
 
     /**
      * Crea una instancia de {@code MotorPartida}.
@@ -58,6 +74,9 @@ public final class MotorPartida {
      */
     public MotorPartida(Juego juego) {
         setJuego(juego);
+        setSistemaTurnosIA(new SistemaTurnosIA());
+        setSistemaRuido(new SistemaRuido(juego));
+        SuscriptorAudioEventos.registrar(juego);
         setContexto(new CommandContext(juego));
         setParser(new CommandParser(contexto));
         setRandom(new Random());
@@ -70,9 +89,11 @@ public final class MotorPartida {
         setSituacionesAliados(situacionesIniciales);
         setAliadosEnCombate(combatesIniciales);
         setFinalizada(false);
+        setModoEspectador(false);
         setEstadoFinal(null);
         setTurnosAyudaAliados(0);
         setAvisoRescateEnergia(false);
+        setCooperacionInventarioActiva(true);
         anunciarPartida();
         evaluarFinNatural();
     }
@@ -88,6 +109,20 @@ public final class MotorPartida {
     /** @param juego partida no nula */
     public void setJuego(Juego juego) {
         this.juego = Validaciones.noNulo(juego, "Juego");
+    }
+
+    /** @return fachada formal de percepcion, decision y ejecucion enemiga */
+    public SistemaTurnosIA getSistemaTurnosIA() { return sistemaTurnosIA; }
+    /** @param sistemaTurnosIA fachada no nula */
+    public void setSistemaTurnosIA(SistemaTurnosIA sistemaTurnosIA) {
+        this.sistemaTurnosIA = Validaciones.noNulo(sistemaTurnosIA, "Sistema de turnos IA");
+    }
+    /** @return distribuidor de ruido activo */
+    public SistemaRuido getSistemaRuido() { return sistemaRuido; }
+    /** @param sistemaRuido distribuidor no nulo; cierra la suscripcion anterior */
+    public void setSistemaRuido(SistemaRuido sistemaRuido) {
+        if (this.sistemaRuido != null) this.sistemaRuido.close();
+        this.sistemaRuido = Validaciones.noNulo(sistemaRuido, "Sistema de ruido");
     }
 
     /** @return contexto de comandos */
@@ -144,6 +179,19 @@ public final class MotorPartida {
     /** @param finalizada estado de finalizacion */
     public void setFinalizada(boolean finalizada) { this.finalizada = finalizada; }
 
+    /** @return si la IA puede continuar la partida tras la muerte del jugador */
+    public boolean isModoEspectadorDisponible() {
+        return modoEspectador && !finalizada && hayAliadosActivos();
+    }
+
+    /** @return estado persistente del modo espectador */
+    public boolean isModoEspectador() { return modoEspectador; }
+
+    /** @param modoEspectador activa o desactiva la continuacion automatica */
+    public void setModoEspectador(boolean modoEspectador) {
+        this.modoEspectador = modoEspectador;
+    }
+
     /**
      * Obtiene el valor de {@code EstadoFinal}.
       * @return resultado de la operacion
@@ -170,6 +218,12 @@ public final class MotorPartida {
     public void setAvisoRescateEnergia(boolean avisoRescateEnergia) {
         this.avisoRescateEnergia = avisoRescateEnergia;
     }
+    /** @return si los aliados pueden compartir municion y mejoras automaticamente */
+    public boolean isCooperacionInventarioActiva() { return cooperacionInventarioActiva; }
+    /** @param activa habilita o deshabilita la cooperacion automatica */
+    public void setCooperacionInventarioActiva(boolean activa) {
+        cooperacionInventarioActiva = activa;
+    }
 
     /**
      * Obtiene el valor de {@code EstadoJugador}.
@@ -181,7 +235,9 @@ public final class MotorPartida {
                 + "  Energia " + juego.getJugador().getEnergia() + "/" + juego.getJugador().getEnergiaMaxima()
                 + "  Pasos " + juego.getPasos() + "/" + juego.getPasosMaximos()
                 + "  Formacion " + juego.getFormacionAliada().getEtiqueta()
-                + (turnosAyudaAliados > 0 ? "  Ayuda aliada " + turnosAyudaAliados : "");
+                + "  Efectos " + SistemaEstados.resumen(juego.getJugador())
+                + (turnosAyudaAliados > 0 ? "  Ayuda aliada " + turnosAyudaAliados : "")
+                + (modoEspectador ? "  MODO ESPECTADOR" : "");
     }
 
     /**
@@ -197,9 +253,12 @@ public final class MotorPartida {
         long evacuados = aliados.stream().filter(juego::estaAliadoExtraido).count();
         long caidos = aliados.stream().filter(aliado -> aliado.getSalud() <= 0).count();
         long enCombate = aliados.stream().filter(this::estaAliadoEnCombate).count();
+        int puntuacionTotal = aliados.stream().mapToInt(aliado ->
+                SistemaPuntuacion.calcularAliado(juego, aliado).total()).sum();
         StringJoiner lineas = new StringJoiner("\n");
         lineas.add("ALIADOS " + aliados.size() + " | activos=" + (aliados.size() - evacuados - caidos)
-                + " | en combate=" + enCombate + " | evacuados=" + evacuados + " | caidos=" + caidos);
+                + " | en combate=" + enCombate + " | evacuados=" + evacuados + " | caidos=" + caidos
+                + " | puntuacion total=" + puntuacionTotal);
         for (Aliado aliado : aliados) {
             SituacionAliado situacion = obtenerSituacionAliado(aliado);
             String posicion = juego.estaAliadoExtraido(aliado)
@@ -207,9 +266,13 @@ public final class MotorPartida {
                     : aliado.getPosicion().toString();
             lineas.add("- " + aliado.getNombre() + " | Estado " + situacion.etiqueta
                     + " | Combate " + (estaAliadoEnCombate(aliado) ? "EN COMBATE" : "FUERA DE COMBATE")
+                    + " | Nivel " + aliado.getNivel()
+                    + " | Rol " + aliado.getRol().getEtiqueta()
                     + " | Vida " + aliado.getSalud() + "/" + aliado.getSaludMaxima()
                     + " | Energia " + aliado.getEnergia() + "/" + aliado.getEnergiaMaxima()
-                    + " | Posicion " + posicion);
+                    + " | Puntuacion " + SistemaPuntuacion.calcularAliado(juego, aliado).total()
+                    + " | Posicion " + posicion
+                    + " | Efectos " + SistemaEstados.resumen(aliado));
             lineas.add("  Objetos: " + listarObjetos(aliado) + " | Equipo: " + listarEquipo(aliado));
         }
         return lineas.toString();
@@ -221,14 +284,25 @@ public final class MotorPartida {
       * @return resultado de la operacion
      */
     public boolean ejecutarComando(String linea) {
-        if (finalizada) {
+        if (finalizada || modoEspectador) {
             return false;
         }
         juego.getJugador().resetTurno();
         try {
             Comando comando = parser.parse(linea == null ? "" : linea);
-            comando.ejecutar();
-            if (comando instanceof ComandoSalir) {
+            SistemaEstados.iniciarTurno(juego);
+            if (juego.getJugador().getSalud() <= 0) {
+                evaluarFinNatural();
+                return false;
+            }
+            boolean aturdido = juego.getJugador().getEstados().consumirBloqueoAccion();
+            if (aturdido) {
+                juego.getConsola().imprimirAdvertencia(
+                        "Estas aturdido y pierdes la accion de este turno.");
+            } else {
+                comando.ejecutar();
+            }
+            if (!aturdido && comando instanceof ComandoSalir) {
                 finalizar(SistemaPuntuacion.EstadoFinalPartida.SALIDA_MANUAL);
                 return false;
             }
@@ -243,8 +317,10 @@ public final class MotorPartida {
                         juego.getMapa().getFilas() + juego.getMapa().getColumnas()));
             }
             ejecutarTurnoAliados();
-            ejecutarTurnoNPC(false);
+            ejecutarTurnoNPC(comando instanceof ComandoDescansar);
             avanzarOrdenAyuda();
+            SistemaIncendios.avanzarTurno(juego, random);
+            SistemaEstados.finalizarTurno(juego);
         } catch (ComandoException e) {
             juego.getConsola().imprimir("Error de comando: " + e.getMessage(), TipoMensaje.ERROR);
         } catch (Exception e) {
@@ -256,6 +332,8 @@ public final class MotorPartida {
 
     private void reemplazarJuegoCargado(Juego cargado) {
         setJuego(cargado);
+        setSistemaRuido(new SistemaRuido(cargado));
+        SuscriptorAudioEventos.registrar(cargado);
         Map<Aliado, SituacionAliado> situaciones = new HashMap<>();
         Map<Aliado, Boolean> combates = new HashMap<>();
         cargado.getAliadosRegistrados().forEach(aliado -> {
@@ -268,6 +346,28 @@ public final class MotorPartida {
         setAvisoRescateEnergia(false);
         setEstadoFinal(null);
         setFinalizada(false);
+        setModoEspectador(false);
+    }
+
+    /**
+     * Ejecuta un turno completo de aliados, enemigos y entorno sin accion del jugador.
+     *
+     * @return {@code true} mientras la simulacion pueda seguir reproduciendose
+     */
+    public boolean avanzarTurnoEspectador() {
+        if (!isModoEspectadorDisponible()) {
+            evaluarFinEspectador();
+            return false;
+        }
+        SistemaEstados.iniciarTurno(juego);
+        ejecutarTurnoAliados();
+        ejecutarTurnoNPC(false);
+        avanzarOrdenAyuda();
+        SistemaIncendios.avanzarTurno(juego, random);
+        SistemaEstados.finalizarTurno(juego);
+        juego.registrarPaso();
+        evaluarFinEspectador();
+        return isModoEspectadorDisponible();
     }
 
     /**
@@ -286,7 +386,7 @@ public final class MotorPartida {
     public Set<Posicion> getAliadosVisibles() {
         Set<Posicion> visibles = new HashSet<>();
         for (Aliado aliado : juego.getAliados()) {
-            if (aliado.getSalud() > 0) {
+            if (aliado.getSalud() > 0 && SistemaIluminacion.hayLuz(juego, aliado.getPosicion())) {
                 visibles.add(aliado.getPosicion());
             }
         }
@@ -298,17 +398,39 @@ public final class MotorPartida {
       * @return resultado de la operacion
      */
     public Set<Posicion> getEnemigosVisibles() {
+        if (modoEspectador) {
+            return juego.getEnemigos().stream().filter(enemigo -> enemigo.getSalud() > 0)
+                    .map(Enemigo::getPosicion).collect(java.util.stream.Collectors.toSet());
+        }
         Set<Posicion> visibles = new HashSet<>();
         Posicion jugadorPos = juego.getJugador().getPosicion();
         int vision = juego.getJugador().getRangoVision();
         for (Enemigo enemigo : juego.getEnemigos()) {
             if (enemigo.getSalud() > 0
-                    && jugadorPos.distanciaManhattan(enemigo.getPosicion()) <= vision) {
+                    && jugadorPos.distanciaManhattan(enemigo.getPosicion()) <= vision
+                    && SistemaIluminacion.hayLuz(juego, enemigo.getPosicion())) {
                 visibles.add(enemigo.getPosicion());
             }
         }
         return visibles;
     }
+
+    /** @return todas las celdas que pueden representarse con detalle pese a la oscuridad */
+    public Set<Posicion> getCeldasIluminadas() {
+        Set<Posicion> iluminadas = new HashSet<>();
+        for (int f = 0; f < juego.getMapa().getFilas(); f++) {
+            for (int c = 0; c < juego.getMapa().getColumnas(); c++) {
+                Posicion posicion = new Posicion(f, c);
+                if (modoEspectador || SistemaIluminacion.hayLuz(juego, posicion)) {
+                    iluminadas.add(posicion);
+                }
+            }
+        }
+        return iluminadas;
+    }
+
+    /** Indica si una celda tiene luz suficiente para mostrar su contenido. */
+    public boolean hayLuzEn(Posicion posicion) { return SistemaIluminacion.hayLuz(juego, posicion); }
 
     private void anunciarPartida() {
         juego.getConsola().imprimir("Mapa: " + juego.getMapa().getNombre(), TipoMensaje.INFO);
@@ -333,7 +455,11 @@ public final class MotorPartida {
             return;
         }
         if (juego.getJugador().getSalud() <= 0) {
-            finalizar(SistemaPuntuacion.EstadoFinalPartida.MUERTE);
+            if (hayAliadosActivos()) {
+                activarModoEspectador();
+            } else {
+                finalizar(SistemaPuntuacion.EstadoFinalPartida.MUERTE);
+            }
             return;
         }
         if (juego.getJugador().getEnergia() <= 0) {
@@ -354,12 +480,50 @@ public final class MotorPartida {
         }
     }
 
+    private void activarModoEspectador() {
+        if (modoEspectador) {
+            return;
+        }
+        setModoEspectador(true);
+        setTurnosAyudaAliados(0);
+        juego.getConsola().imprimirAdvertencia(
+                "El jugador ha caido. Pulsa Play para observar como los aliados continuan la partida.");
+    }
+
+    private void evaluarFinEspectador() {
+        if (finalizada || !modoEspectador) {
+            return;
+        }
+        if (!hayAliadosActivos()) {
+            if (juego.getAliadosExtraidos() > 0) {
+                juego.getConsola().imprimirInfo("La simulacion aliada termina con "
+                        + juego.getAliadosExtraidos() + " superviviente(s) evacuado(s).");
+            } else {
+                juego.getConsola().imprimirAdvertencia(
+                        "La simulacion aliada termina: no queda ningun miembro activo.");
+            }
+            finalizar(SistemaPuntuacion.EstadoFinalPartida.MUERTE);
+        } else if (juego.excedioPasos()) {
+            finalizar(SistemaPuntuacion.EstadoFinalPartida.SIN_PASOS);
+        }
+    }
+
+    private boolean hayAliadosActivos() {
+        return juego.getAliados().stream().anyMatch(aliado -> aliado.getSalud() > 0);
+    }
+
     private void finalizar(SistemaPuntuacion.EstadoFinalPartida estado) {
         if (finalizada) {
             return;
         }
         setFinalizada(true);
+        setModoEspectador(false);
         setEstadoFinal(Validaciones.noNulo(estado, "Estado final"));
+        if (estado == SistemaPuntuacion.EstadoFinalPartida.VICTORIA) {
+            juego.publicarEvento(new MisionCompletada(
+                    juego.getBusEventos().ahora(), juego.getMision() == null
+                            ? "victoria-original" : juego.getMision().getId()));
+        }
         switch (estado) {
             case VICTORIA -> juego.getConsola().imprimir("Has llegado al objetivo. Victoria.", TipoMensaje.EXITO);
             case MUERTE -> juego.getConsola().imprimir(
@@ -373,6 +537,7 @@ public final class MotorPartida {
         }
 
         SistemaPuntuacion.ResultadoPuntuacion puntuacion = SistemaPuntuacion.calcular(juego, estado);
+        juego.setPuntuacion(puntuacion.getTotal());
         for (String linea : puntuacion.formatearDesglose()) {
             juego.getConsola().imprimir(linea, TipoMensaje.INFO);
         }
@@ -385,21 +550,39 @@ public final class MotorPartida {
             if (enemigo.getSalud() <= 0) {
                 continue;
             }
+            if (enemigo.getEstados().consumirBloqueoAccion()) {
+                continue;
+            }
+            if (enemigo instanceof EnemigoTactico
+                    || enemigo instanceof com.legendoftecla.model.characters.Jefe) {
+                sistemaTurnosIA.ejecutar(juego, enemigo, random);
+                continue;
+            }
             boolean formacionDetectada = enemigoDetectaFormacion(enemigo);
             Personaje objetivoTactico = formacionDetectada ? seleccionarObjetivoTactico(enemigo) : null;
             if (formacionDetectada) {
-                juego.getConsola().imprimirInfo(enemigo.getNombre() + " detecta la formacion "
-                        + juego.getFormacionAliada().getEtiqueta() + " y adapta su ataque.");
+                String despliegue = juego.getFormacionAliada() == FormacionAliada.SIN_FORMACION
+                        ? "el escuadron aliado"
+                        : "la formacion " + juego.getFormacionAliada().getEtiqueta();
+                juego.getConsola().imprimirInfo(enemigo.getNombre() + " detecta "
+                        + despliegue + " y coordina su ataque.");
             }
             int movimientos = jugadorDescansando || formacionDetectada
                     ? Math.max(1, random.nextInt(3)) : random.nextInt(3);
             for (int i = 0; i < movimientos; i++) {
-                Personaje objetivo = objetivoTactico == null ? juego.getJugador() : objetivoTactico;
+                Personaje objetivo = objetivoTactico == null
+                        ? objetivoEnemigoPorDefecto(enemigo) : objetivoTactico;
+                if (objetivo == null) {
+                    break;
+                }
                 int distancia = enemigo.getPosicion().distanciaManhattan(objetivo.getPosicion());
                 if (distancia <= enemigo.getRangoVision()
                         && juego.getMapa().hayLineaAtaque(enemigo.getPosicion(), objetivo.getPosicion())) {
-                    enemigo.atacar(objetivo);
-                    juego.getConsola().imprimir(enemigo.getNombre() + " ataca a " + objetivo.getNombre() + ".");
+                    if (!enemigo.puedeAtacar()) {
+                        intentarRecargar(enemigo);
+                        break;
+                    }
+                    SistemaCombate.atacar(juego, enemigo, objetivo, random);
                     break;
                 }
                 Direccion direccion = jugadorDescansando || formacionDetectada
@@ -415,6 +598,8 @@ public final class MotorPartida {
                     try {
                         enemigo.mover(direccion, juego);
                         juego.getMapa().getCelda(enemigo.getPosicion()).agregarEnemigo(enemigo);
+                        GestorSonido.reproducir(EventoSonido.MOVIMIENTO,
+                                enemigo.getPosicion(), juego.getJugador().getPosicion());
                         if (jugadorDescansando && !formacionDetectada) {
                             juego.getConsola().imprimirInfo(
                                     enemigo.getNombre() + " se acerca mientras descansas.");
@@ -436,6 +621,12 @@ public final class MotorPartida {
                 continue;
             }
             aliado.resetTurno();
+            if (aliado.getEstados().consumirBloqueoAccion()) {
+                juego.getConsola().imprimirAdvertencia(
+                        aliado.getNombre() + " esta aturdido y pierde su accion.");
+                continue;
+            }
+            gestionarLinternaAliada(aliado);
             usarBinocularSiConviene(aliado);
             marcarCombate(aliado, false);
             SituacionAliado anterior = situacionesAliados.getOrDefault(aliado, SituacionAliado.ACTIVO);
@@ -447,15 +638,16 @@ public final class MotorPartida {
                 continue;
             }
             interactuarConObjetos(aliado);
-            if (juego.getFormacionAliada() != FormacionAliada.SIN_FORMACION) {
-                ejecutarFormacion(aliado);
-                extraerAliadoSiProcede(aliado);
+            if (evacuarAliadoSiTieneLaSalidaAlAlcance(aliado)) {
+                continue;
+            }
+            if (priorizarRolMedico(aliado)) {
                 continue;
             }
             if (turnosAyudaAliados > 0 && prepararAliadoParaAyuda(aliado)) {
                 continue;
             }
-            if (asistirJugador(aliado) || asistirAliadoPrioritario(aliado)) {
+            if (priorizarAyudaJugador(aliado)) {
                 continue;
             }
             if (turnosAyudaAliados > 0) {
@@ -465,12 +657,25 @@ public final class MotorPartida {
                 ejecutarOrdenAyuda(aliado);
                 continue;
             }
+            if (juego.getFormacionAliada() != FormacionAliada.SIN_FORMACION) {
+                ejecutarFormacion(aliado);
+                extraerAliadoSiProcede(aliado);
+                continue;
+            }
+            if (asistirAliadoPrioritario(aliado)) {
+                continue;
+            }
+            if (explorarSuministrosDesconocidos(aliado)) {
+                continue;
+            }
             Enemigo objetivo = buscarEnemigoMasCercano(aliado);
             if (objetivo == null) {
                 if (situacionesAliados.get(aliado) != SituacionAliado.FUERA_DE_COMBATE) {
                     cambiarSituacion(aliado, SituacionAliado.ACOMPANANDO);
                 }
-                Posicion destino = juego.getJugador().getPosicion().equals(juego.getMapa().getObjetivo())
+                Posicion destino = modoEspectador
+                        ? juego.getMapa().getObjetivo()
+                        : juego.getJugador().getPosicion().equals(juego.getMapa().getObjetivo())
                         ? juego.getMapa().getObjetivo()
                         : juego.getJugador().getPosicion();
                 moverAliadoHaciaObjetivo(aliado, destino);
@@ -479,21 +684,141 @@ public final class MotorPartida {
             }
             cambiarSituacion(aliado, SituacionAliado.EN_COMBATE);
             marcarCombate(aliado, true);
-            int distancia = aliado.getPosicion().distanciaManhattan(objetivo.getPosicion());
-            if (distancia <= 1) {
+            if (puedeAliadoAtacarA(aliado, objetivo)) {
                 if (!debeAliadoAtacarConRadar(aliado, objetivo)) {
                     continue;
                 }
-                aliado.atacar(objetivo);
+                SistemaCombate.atacar(juego, aliado, objetivo, random);
                 if (objetivo.getSalud() <= 0) {
-                    juego.getMapa().getCelda(objetivo.getPosicion()).quitarEnemigo(objetivo);
-                    juego.getConsola().imprimirExito(
-                            aliado.getNombre() + " elimina a " + objetivo.getNombre() + ".");
+                    eliminarEnemigoDerrotado(aliado, objetivo);
                 }
+            } else if (!aliado.puedeAtacar()) {
+                intentarRecargar(aliado);
             } else {
                 moverAliadoHaciaObjetivo(aliado, objetivo.getPosicion());
             }
         }
+    }
+
+    private boolean priorizarRolMedico(Aliado medico) {
+        if (!medico.esMedico()) {
+            return false;
+        }
+        if ((juego.getJugador().getSalud() > 0 && asistirJugador(medico))
+                || asistirAliadoPrioritario(medico)) {
+            return true;
+        }
+        Personaje paciente = buscarPacientePara(medico);
+        if (paciente != null
+                && medico.getPosicion().distanciaManhattan(paciente.getPosicion()) > 1) {
+            cambiarSituacion(medico, SituacionAliado.ACUDIENDO);
+            moverAliadoHaciaObjetivo(medico, paciente.getPosicion());
+            juego.getConsola().imprimirInfo(medico.getNombre()
+                    + " prioriza asistir a " + paciente.getNombre() + ".");
+            return true;
+        }
+        long botiquines = medico.getMochila().getObjetos().stream()
+                .filter(Botiquin.class::isInstance).count();
+        long toritos = medico.getMochila().getObjetos().stream()
+                .filter(ToritoRojo.class::isInstance).count();
+        if (botiquines < 2 && moverAliadoHaciaSuministro(medico, Botiquin.class)) {
+            return true;
+        }
+        if (toritos < 2 && moverAliadoHaciaSuministro(medico, ToritoRojo.class)) {
+            return true;
+        }
+        return (botiquines < 2 || toritos < 2)
+                && explorarSuministrosDesconocidos(medico);
+    }
+
+    private Personaje buscarPacientePara(Aliado medico) {
+        List<Personaje> candidatos = new ArrayList<>();
+        if (juego.getJugador().getSalud() > 0) {
+            candidatos.add(juego.getJugador());
+        }
+        juego.getAliados().stream().filter(aliado -> aliado.getSalud() > 0)
+                .forEach(candidatos::add);
+        boolean tieneBotiquin = medico.getMochila().getObjetos().stream()
+                .anyMatch(Botiquin.class::isInstance);
+        boolean tieneTorito = medico.getMochila().getObjetos().stream()
+                .anyMatch(ToritoRojo.class::isInstance);
+        return candidatos.stream()
+                .filter(personaje -> (tieneBotiquin
+                        && personaje.getSalud() < personaje.getSaludMaxima())
+                        || (tieneTorito
+                        && personaje.getEnergia() < personaje.getEnergiaMaxima()))
+                .min(java.util.Comparator
+                        .comparingDouble(this::necesidadMedica)
+                        .thenComparingInt(personaje -> medico.getPosicion()
+                                .distanciaManhattan(personaje.getPosicion())))
+                .orElse(null);
+    }
+
+    private double necesidadMedica(Personaje personaje) {
+        double salud = (double) personaje.getSalud()
+                / Math.max(1, personaje.getSaludMaxima());
+        double energia = (double) personaje.getEnergia()
+                / Math.max(1, personaje.getEnergiaMaxima());
+        return Math.min(salud, energia);
+    }
+
+    private boolean priorizarAyudaJugador(Aliado aliado) {
+        Personaje jugador = juego.getJugador();
+        if (jugador.getSalud() <= 0) {
+            return false;
+        }
+        if (asistirJugador(aliado)) {
+            return true;
+        }
+        boolean necesitaVida = jugador.getSalud() < jugador.getSaludMaxima();
+        boolean necesitaEnergia = jugador.getEnergia() < jugador.getEnergiaMaxima();
+        boolean llevaAyuda = necesitaVida
+                && aliado.getMochila().getObjetos().stream().anyMatch(Botiquin.class::isInstance)
+                || necesitaEnergia
+                && aliado.getMochila().getObjetos().stream().anyMatch(ToritoRojo.class::isInstance);
+        int distanciaJugador = aliado.getPosicion().distanciaManhattan(jugador.getPosicion());
+        if (llevaAyuda && distanciaJugador > 1) {
+            cambiarSituacion(aliado, SituacionAliado.ACUDIENDO);
+            moverAliadoHaciaObjetivo(aliado, jugador.getPosicion());
+            return true;
+        }
+        Enemigo amenaza = buscarEnemigoCercanoAlJugador();
+        if (amenaza != null) {
+            cambiarSituacion(aliado, SituacionAliado.EN_COMBATE);
+            marcarCombate(aliado, true);
+            if (puedeAliadoAtacarA(aliado, amenaza)) {
+                if (debeAliadoAtacarConRadar(aliado, amenaza)) {
+                    SistemaCombate.atacar(juego, aliado, amenaza, random);
+                    eliminarEnemigoDerrotado(aliado, amenaza);
+                }
+            } else if (!aliado.puedeAtacar()) {
+                intentarRecargar(aliado);
+            } else {
+                moverAliadoHaciaObjetivo(aliado, amenaza.getPosicion());
+            }
+            return true;
+        }
+        Enemigo amenazaInmediata = buscarEnemigoMasCercano(aliado);
+        if (amenazaInmediata != null
+                && aliado.getPosicion().distanciaManhattan(amenazaInmediata.getPosicion()) <= 1) {
+            cambiarSituacion(aliado, SituacionAliado.EN_COMBATE);
+            marcarCombate(aliado, true);
+            if (puedeAliadoAtacarA(aliado, amenazaInmediata)
+                    && debeAliadoAtacarConRadar(aliado, amenazaInmediata)) {
+                SistemaCombate.atacar(juego, aliado, amenazaInmediata, random);
+                eliminarEnemigoDerrotado(aliado, amenazaInmediata);
+            }
+            return true;
+        }
+        if ((necesitaVida || necesitaEnergia) && buscarSuministroNecesarioParaJugador(aliado)) {
+            return true;
+        }
+        if (distanciaJugador > 2) {
+            cambiarSituacion(aliado, SituacionAliado.ACOMPANANDO);
+            moverAliadoHaciaObjetivo(aliado, jugador.getPosicion());
+            return true;
+        }
+        return false;
     }
 
     private void ejecutarOrdenAyuda(Aliado aliado) {
@@ -516,12 +841,13 @@ public final class MotorPartida {
         }
         cambiarSituacion(aliado, SituacionAliado.EN_COMBATE);
         marcarCombate(aliado, true);
-        int distancia = aliado.getPosicion().distanciaManhattan(objetivo.getPosicion());
-        if (distancia <= 1) {
+        if (puedeAliadoAtacarA(aliado, objetivo)) {
             if (debeAliadoAtacarConRadar(aliado, objetivo)) {
-                aliado.atacar(objetivo);
+                SistemaCombate.atacar(juego, aliado, objetivo, random);
                 eliminarEnemigoDerrotado(aliado, objetivo);
             }
+        } else if (!aliado.puedeAtacar()) {
+            intentarRecargar(aliado);
         } else {
             moverAliadoHaciaObjetivo(aliado, objetivo.getPosicion());
         }
@@ -636,6 +962,7 @@ public final class MotorPartida {
         Posicion posicion = aliado.getPosicion();
         boolean primeraInspeccion = juego.inspeccionarCeldaAliado(aliado);
         Celda celda = juego.getMapa().getCelda(posicion);
+        gestionarAguaAliada(aliado, celda);
         if (primeraInspeccion) {
             juego.getConsola().imprimirInfo(aliado.getNombre() + " inspecciona la celda " + posicion
                     + " y encuentra " + celda.getObjetos().size() + " objeto(s).");
@@ -661,6 +988,14 @@ public final class MotorPartida {
     }
 
     private void recogerObjetoAliado(Aliado aliado, Objeto objeto, Celda celda) {
+        boolean suministroMedico = objeto instanceof Botiquin
+                || objeto instanceof ToritoRojo;
+        boolean hayMedicoActivo = juego.getAliados().stream()
+                .anyMatch(candidato -> candidato != aliado && candidato.getSalud() > 0
+                        && candidato.esMedico());
+        if (suministroMedico && !aliado.esMedico() && hayMedicoActivo) {
+            return;
+        }
         if (!aliado.getMochila().puedeGuardar(objeto)) {
             return;
         }
@@ -744,6 +1079,8 @@ public final class MotorPartida {
             aliado.equipar(retirado);
             juego.getConsola().imprimirInfo(
                     aliado.getNombre() + " recoge y equipa " + objeto.getNombre() + ".");
+            GestorSonido.reproducir(EventoSonido.EQUIPAR,
+                    aliado.getPosicion(), juego.getJugador().getPosicion());
         } catch (Exception e) {
             celda.agregarObjeto(retirado);
         }
@@ -756,6 +1093,8 @@ public final class MotorPartida {
             }
             try {
                 aliado.desequipar(objeto.getNombre());
+                GestorSonido.reproducir(EventoSonido.DESEQUIPAR,
+                        aliado.getPosicion(), juego.getJugador().getPosicion());
                 if (!tirarObjetoAliado(aliado, objeto.getNombre(), celda,
                         " para sustituirlo por una opcion mejor")) {
                     return false;
@@ -806,6 +1145,8 @@ public final class MotorPartida {
             juego.getConsola().imprimirInfo(
                     aliado.getNombre() + " tira " + descartado.getNombre()
                             + " en la celda " + aliado.getPosicion() + motivo + ".");
+            GestorSonido.reproducir(EventoSonido.TIRAR,
+                    aliado.getPosicion(), juego.getJugador().getPosicion());
             return true;
         } catch (Exception ignored) {
             // El objeto permanece donde estaba si no puede retirarse.
@@ -815,6 +1156,9 @@ public final class MotorPartida {
 
     private boolean asistirJugador(Aliado aliado) {
         Personaje jugador = juego.getJugador();
+        if (jugador.getSalud() <= 0) {
+            return false;
+        }
         if (aliado.getPosicion().distanciaManhattan(jugador.getPosicion()) > 1) {
             return false;
         }
@@ -847,8 +1191,16 @@ public final class MotorPartida {
                 && usarBotiquin(donante, destinatario)) {
             return true;
         }
-        return destinatario.getEnergia() < destinatario.getEnergiaMaxima()
-                && usarTorito(donante, destinatario);
+        if (destinatario.getEnergia() < destinatario.getEnergiaMaxima()
+                && usarTorito(donante, destinatario)) {
+            return true;
+        }
+        if (!cooperacionInventarioActiva) {
+            return false;
+        }
+        CooperacionInventario cooperacion = new CooperacionInventario(1);
+        return cooperacion.compartirMunicion(donante, destinatario)
+                || cooperacion.transferirMejorArma(donante, destinatario);
     }
 
     private boolean usarBotiquin(Aliado donante, Personaje destinatario) {
@@ -903,6 +1255,8 @@ public final class MotorPartida {
             return;
         }
         juego.getMapa().getCelda(objetivo.getPosicion()).quitarEnemigo(objetivo);
+        ServicioBotinEnemigo.soltar(
+                juego.getMapa().getCelda(objetivo.getPosicion()), objetivo);
         juego.getConsola().imprimirExito(aliado.getNombre() + " elimina a " + objetivo.getNombre() + ".");
     }
 
@@ -988,6 +1342,61 @@ public final class MotorPartida {
                 + " porque permite detectar una amenaza nueva este turno.");
     }
 
+    private boolean intentarRecargar(Personaje personaje) {
+        try {
+            var resultado = new ServicioRecarga().recargar(personaje, null);
+            juego.getConsola().imprimirInfo(personaje.getNombre() + " recarga "
+                    + resultado.arma().getNombre() + " (" + resultado.cantidad() + ").");
+            juego.publicarEvento(new com.legendoftecla.events.ArmaRecargada(
+                    juego.getBusEventos().ahora(), personaje.getNombre(),
+                    resultado.arma().getNombre(), resultado.cantidad(),
+                    personaje.getPosicion()));
+            return true;
+        } catch (com.legendoftecla.exceptions.AccionInvalidaException error) {
+            return false;
+        }
+    }
+
+    private void gestionarLinternaAliada(Aliado aliado) {
+        Linterna linterna = aliado.getMochila().getObjetos().stream()
+                .filter(Linterna.class::isInstance).map(Linterna.class::cast).findFirst().orElse(null);
+        if (linterna == null) return;
+        boolean necesitaLuz = juego.getMapa().getCelda(aliado.getPosicion()).isOscura();
+        if (necesitaLuz != aliado.isLinternaActiva()) {
+            aliado.setLinternaActiva(necesitaLuz);
+            aliado.setAlcanceLinterna(linterna.getAlcance());
+            juego.getConsola().imprimirInfo(aliado.getNombre()
+                    + (necesitaLuz ? " enciende " : " apaga ") + linterna.getNombre() + ".");
+        }
+    }
+
+    private void gestionarAguaAliada(Aliado aliado, Celda celda) {
+        CuboAgua cubo = aliado.getMochila().getObjetos().stream()
+                .filter(CuboAgua.class::isInstance).map(CuboAgua.class::cast).findFirst().orElse(null);
+        if (cubo == null) return;
+        if (!cubo.isLleno() && celda.hasFuenteAgua()) {
+            cubo.llenar();
+            juego.getConsola().imprimirInfo(aliado.getNombre() + " llena " + cubo.getNombre() + ".");
+            return;
+        }
+        if (!cubo.isLleno()) return;
+        Posicion fuego = celda.estaArdiendo() ? aliado.getPosicion() : null;
+        if (fuego == null) {
+            for (Direccion direccion : Direccion.values()) {
+                Posicion candidata = aliado.getPosicion().mover(direccion);
+                if (juego.getMapa().estaDentro(candidata)
+                        && juego.getMapa().getCelda(candidata).estaArdiendo()) {
+                    fuego = candidata;
+                    break;
+                }
+            }
+        }
+        if (fuego != null && SistemaIncendios.apagar(juego, fuego)) {
+            cubo.consumirAgua();
+            juego.getConsola().imprimirExito(aliado.getNombre() + " usa " + cubo.getNombre() + ".");
+        }
+    }
+
     private boolean revelaNuevaAmenaza(Aliado aliado, Binocular binocular) {
         int visionActual = aliado.getRangoVision();
         int visionAmpliada = visionActual + binocular.getRango();
@@ -1008,7 +1417,7 @@ public final class MotorPartida {
         int separacion = aliado.getPosicion().distanciaManhattan(jugador);
         if (juego.getFormacionAliada() == FormacionAliada.DEFENSIVA) {
             cambiarSituacion(aliado, SituacionAliado.PROTEGIENDO);
-            if (amenaza != null && aliado.getPosicion().distanciaManhattan(amenaza.getPosicion()) <= 1) {
+            if (amenaza != null && puedeAliadoAtacarA(aliado, amenaza)) {
                 atacarEnFormacion(aliado, amenaza);
             } else if (separacion > 1) {
                 moverAliadoHaciaObjetivo(aliado, jugador);
@@ -1026,7 +1435,7 @@ public final class MotorPartida {
             if (separacion > 1) {
                 moverAliadoHaciaObjetivo(aliado, jugador);
             }
-        } else if (aliado.getPosicion().distanciaManhattan(amenaza.getPosicion()) <= 1) {
+        } else if (puedeAliadoAtacarA(aliado, amenaza)) {
             atacarEnFormacion(aliado, amenaza);
         } else {
             moverAliadoHaciaObjetivo(aliado, amenaza.getPosicion());
@@ -1038,13 +1447,22 @@ public final class MotorPartida {
         if (!debeAliadoAtacarConRadar(aliado, enemigo)) {
             return;
         }
-        aliado.atacar(enemigo);
+        SistemaCombate.atacar(juego, aliado, enemigo, random);
         eliminarEnemigoDerrotado(aliado, enemigo);
+    }
+
+    private boolean puedeAliadoAtacarA(Aliado aliado, Enemigo enemigo) {
+        int distancia = aliado.getPosicion().distanciaManhattan(enemigo.getPosicion());
+        boolean alcance = aliado.getArmasEquipadas().isEmpty()
+                ? distancia <= 1 : aliado.puedeAtacarA(distancia);
+        return alcance && juego.getMapa().hayLineaAtaque(
+                aliado.getPosicion(), enemigo.getPosicion());
     }
 
     private Enemigo buscarAmenazaDeFormacion(Aliado aliado) {
         Posicion jugador = juego.getJugador().getPosicion();
         return juego.getEnemigos().stream().filter(enemigo -> enemigo.getSalud() > 0)
+                .filter(enemigo -> SistemaIluminacion.hayLuz(juego, enemigo.getPosicion()))
                 .filter(enemigo -> juego.getFormacionAliada() == FormacionAliada.OFENSIVA
                         || enemigo.getPosicion().distanciaManhattan(jugador) <= 3
                         || enemigo.getPosicion().distanciaManhattan(aliado.getPosicion()) <= 2)
@@ -1096,6 +1514,21 @@ public final class MotorPartida {
         return true;
     }
 
+    private boolean evacuarAliadoSiTieneLaSalidaAlAlcance(Aliado aliado) {
+        Posicion salida = juego.getMapa().getObjetivo();
+        if (calcularDistanciaRutaAliado(aliado.getPosicion(), salida) != 1) {
+            return false;
+        }
+        Posicion origen = aliado.getPosicion();
+        moverAliadoHaciaObjetivo(aliado, salida);
+        if (aliado.getPosicion().equals(origen)) {
+            return false;
+        }
+        juego.getConsola().imprimirInfo(
+                aliado.getNombre() + " prioriza la salida y alcanza la casilla final.");
+        return extraerAliadoSiProcede(aliado);
+    }
+
     private Posicion buscarCeldaDeSuministrosEnFormacion(Aliado aliado) {
         Posicion jugador = juego.getJugador().getPosicion();
         ArrayDeque<Posicion> pendientes = new ArrayDeque<>();
@@ -1127,7 +1560,7 @@ public final class MotorPartida {
     }
 
     private boolean enemigoDetectaFormacion(Enemigo enemigo) {
-        if (juego.getFormacionAliada() == FormacionAliada.SIN_FORMACION) {
+        if (juego.getAliados().stream().noneMatch(aliado -> aliado.getSalud() > 0)) {
             return false;
         }
         if (vePersonaje(enemigo, juego.getJugador())) {
@@ -1138,19 +1571,21 @@ public final class MotorPartida {
     }
 
     private boolean vePersonaje(Enemigo enemigo, Personaje personaje) {
-        return enemigo.getPosicion().distanciaManhattan(personaje.getPosicion()) <= enemigo.getRangoVision()
+        return personaje.getSalud() > 0
+                && enemigo.getPosicion().distanciaManhattan(
+                        personaje.getPosicion()) <= enemigo.getRangoVision()
                 && juego.getMapa().hayLineaAtaque(enemigo.getPosicion(), personaje.getPosicion());
     }
 
     private Personaje seleccionarObjetivoTactico(Enemigo enemigo) {
         List<Personaje> visibles = new ArrayList<>();
-        if (vePersonaje(enemigo, juego.getJugador())) {
+        if (juego.getJugador().getSalud() > 0 && vePersonaje(enemigo, juego.getJugador())) {
             visibles.add(juego.getJugador());
         }
         juego.getAliados().stream().filter(aliado -> aliado.getSalud() > 0)
                 .filter(aliado -> vePersonaje(enemigo, aliado)).forEach(visibles::add);
         if (visibles.isEmpty()) {
-            return juego.getJugador();
+            return objetivoEnemigoPorDefecto(enemigo);
         }
         if (juego.getFormacionAliada() == FormacionAliada.DEFENSIVA) {
             return visibles.stream().min(java.util.Comparator.comparingDouble(personaje ->
@@ -1158,6 +1593,16 @@ public final class MotorPartida {
         }
         return visibles.stream().min(java.util.Comparator.comparingInt(personaje ->
                 enemigo.getPosicion().distanciaManhattan(personaje.getPosicion()))).orElseThrow();
+    }
+
+    private Personaje objetivoEnemigoPorDefecto(Enemigo enemigo) {
+        if (juego.getJugador().getSalud() > 0) {
+            return juego.getJugador();
+        }
+        return juego.getAliados().stream().filter(aliado -> aliado.getSalud() > 0)
+                .min(java.util.Comparator.comparingInt(aliado -> enemigo.getPosicion()
+                        .distanciaManhattan(aliado.getPosicion())))
+                .orElse(null);
     }
 
     private int estimarRiesgoRecibido(Aliado aliado) {
@@ -1200,6 +1645,8 @@ public final class MotorPartida {
             juego.getMapa().getCelda(origen).quitarAliado(aliado);
             aliado.mover(siguiente, juego);
             juego.getMapa().getCelda(aliado.getPosicion()).agregarAliado(aliado);
+            GestorSonido.reproducir(EventoSonido.MOVIMIENTO,
+                    aliado.getPosicion(), juego.getJugador().getPosicion());
         } catch (Exception e) {
             juego.getMapa().getCelda(origen).agregarAliado(aliado);
         }
@@ -1268,10 +1715,6 @@ public final class MotorPartida {
                 if (visitadas.contains(candidata) || !juego.getMapa().esTransitable(candidata)) {
                     continue;
                 }
-                boolean ocupada = !juego.getMapa().getCelda(candidata).getAliados().isEmpty();
-                if (ocupada) {
-                    continue;
-                }
                 visitadas.add(candidata);
                 pendientes.addLast(candidata);
             }
@@ -1295,10 +1738,6 @@ public final class MotorPartida {
                 if (visitadas.contains(candidata) || !juego.getMapa().esTransitable(candidata)) {
                     continue;
                 }
-                boolean ocupada = !juego.getMapa().getCelda(candidata).getAliados().isEmpty();
-                if (ocupada) {
-                    continue;
-                }
                 visitadas.add(candidata);
                 pendientes.addLast(candidata);
             }
@@ -1320,10 +1759,6 @@ public final class MotorPartida {
             for (Direccion direccion : Direccion.values()) {
                 Posicion candidata = actual.mover(direccion);
                 if (distancias.containsKey(candidata) || !juego.getMapa().esTransitable(candidata)) {
-                    continue;
-                }
-                boolean ocupada = !juego.getMapa().getCelda(candidata).getAliados().isEmpty();
-                if (ocupada && !candidata.equals(objetivo)) {
                     continue;
                 }
                 if (candidata.equals(objetivo)) {
@@ -1351,10 +1786,6 @@ public final class MotorPartida {
             for (Direccion direccion : Direccion.values()) {
                 Posicion candidata = actual.mover(direccion);
                 if (anterior.containsKey(candidata) || !juego.getMapa().esTransitable(candidata)) {
-                    continue;
-                }
-                boolean ocupadaPorAliado = !juego.getMapa().getCelda(candidata).getAliados().isEmpty();
-                if (ocupadaPorAliado && !candidata.equals(objetivo)) {
                     continue;
                 }
                 anterior.put(candidata, actual);

@@ -6,12 +6,16 @@ import com.legendoftecla.model.world.Celda;
 import com.legendoftecla.model.world.Direccion;
 import com.legendoftecla.model.world.Mapa;
 import com.legendoftecla.model.world.Posicion;
+import com.legendoftecla.engine.SistemaCombate;
+import com.legendoftecla.engine.ServicioBotinEnemigo;
+import com.legendoftecla.engine.SistemaIluminacion;
 import com.legendoftecla.validation.Limites;
 import com.legendoftecla.validation.Validaciones;
 
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Representa la entidad ComandoAtacar del juego.
@@ -69,27 +73,26 @@ public class ComandoAtacar implements Comando {
             throw new ComandoException("Ataque bloqueado: hay celdas no transitables en la trayectoria.");
         }
         Celda celda = mapa.getCelda(destino);
+        if (!SistemaIluminacion.hayLuz(context.getJuego(), destino)) {
+            throw new ComandoException("La celda objetivo esta oscura; necesitas iluminarla antes de atacar.");
+        }
         List<Enemigo> enemigos = celda.getEnemigos().stream()
                 .filter(enemigo -> enemigo.getSalud() > 0)
                 .toList();
         if (enemigos.isEmpty()) {
             throw new ComandoException("No hay enemigos en la celda objetivo.");
         }
-        if (debeAtacarATodos()) {
-            context.getJuego().getJugador().atacar(enemigos);
-            context.getJuego().getConsola()
-                    .imprimir("Atacas a todos los enemigos de la celda objetivo " + destino + ".");
-        } else {
-            Enemigo objetivo = enemigos.stream()
-                    .filter(enemigo -> enemigo.getNombre().equalsIgnoreCase(nombreObjetivo))
-                    .findFirst()
-                    .orElseThrow(() -> new ComandoException("No existe ese enemigo en la celda."));
-            context.getJuego().getJugador().atacar(objetivo);
-            context.getJuego().getConsola().imprimir("Atacas a " + objetivo.getNombre() + ".");
+        if (!debeAtacarATodos() && enemigos.stream()
+                .noneMatch(enemigo -> enemigo.getNombre().equalsIgnoreCase(nombreObjetivo))) {
+            throw new ComandoException("No existe ese enemigo en la celda.");
         }
+        SistemaCombate.atacarTodos(context.getJuego(), context.getJuego().getJugador(),
+                enemigos, ThreadLocalRandom.current());
+        context.getJuego().getConsola().imprimir("Atacas a todos los enemigos de la celda objetivo "
+                + destino + " (" + enemigos.size() + " objetivo(s)).");
         celda.getEnemigos().stream().filter(e -> e.getSalud() <= 0).toList().forEach(e -> {
             celda.quitarEnemigo(e);
-            e.getMochila().getObjetos().forEach(celda::agregarObjeto);
+            ServicioBotinEnemigo.soltar(celda, e);
         });
     }
 
