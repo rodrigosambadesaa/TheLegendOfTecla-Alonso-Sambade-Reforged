@@ -23,6 +23,24 @@ dispersan fuera de un radio de preparación escalable y todas las familias de ob
 crecen con el total de aliados y enemigos. Mapa, estado, acciones, eventos y
 comandos viven en ventanas movibles, redimensionables, minimizables y maximizables.
 
+## Arsenal, cooperación y escala
+
+- El nivel inicial del jugador se elige en consola y GUI, tanto en solitario como con aliados.
+- Por defecto los aliados pueden sustituir sus armas y armaduras por equipo objetivamente mejor
+  y transfieren al jugador munición compatible cuando la necesita; ambas ayudas son configurables.
+- El arsenal diferencia espadas de una y dos manos, cuchillos, arrojadizas, arcos, ballestas,
+  granadas, pistolas, subfusiles, escopetas, rifles de asalto y precisión, ametralladoras,
+  lanzadores y armas de energía, con cargadores, daño, alcance y penetración propios.
+- El catálogo determinista rota variantes para evitar partidas con el mismo lote de armas.
+  Jugador, aliados, enemigos normales y jefes eligen y emplean armas compatibles con su rol.
+- La precisión depende del tirador, su clase y nivel; el daño final también considera la
+  cobertura, el flanqueo y la defensa efectiva de la armadura tras aplicar penetración.
+- El despliegue nunca permite más enemigos que combatientes aliados contando al jugador.
+  El máximo validado es 5.000 contra 5.000 (4.999 aliados más el jugador).
+- La fila numérica y el teclado numérico funcionan en configuración, editor y comando de partida.
+
+CLI: `--nivel-jugador N`, `--sin-mejoras-aliados` y `--sin-municion-aliada`.
+
 ## Ejecutar
 
 Requisitos: Java 17+ y Maven 3.9+.
