@@ -17,8 +17,10 @@ Algunos cumplen el rol médico y buscan botiquines y Toritos Rojos. Los enemigos
 emplean armas y armaduras de su propia facción, se coordinan cuando hay escuadra y
 su número se escala de forma justa con los aliados. Cada celda posee ambientación
 detallada y `mirar` refleja fielmente suelo, luz, fuego, agua y estructuras visibles.
-La partida puede continuar en modo espectador cuando muere el jugador: `Play`
-reproduce a ritmo normal los turnos restantes. Mapa, estado, acciones, eventos y
+La partida puede continuar en modo espectador cuando muere el jugador: `Turbo`
+reproduce turnos cada 100 ms y muestra victoria humana o enemiga. Los enemigos se
+dispersan fuera de un radio de preparación escalable y todas las familias de objetos
+crecen con el total de aliados y enemigos. Mapa, estado, acciones, eventos y
 comandos viven en ventanas movibles, redimensionables, minimizables y maximizables.
 
 ## Ejecutar
