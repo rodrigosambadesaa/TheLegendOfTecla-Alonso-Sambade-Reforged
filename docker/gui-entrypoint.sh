@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+# Este script se ejecuta dentro de Linux y debe conservar finales de linea LF.
+
 display_number="${DISPLAY:-:99}"
 
 cleanup() {
