@@ -12,3 +12,4 @@ target/
 **/nbproject/private/
 /docs/
 /tools/
+*.log
