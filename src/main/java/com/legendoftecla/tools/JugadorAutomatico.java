@@ -27,6 +27,7 @@ import java.util.Set;
  */
 public final class JugadorAutomatico {
     private boolean formacionElegida;
+    private boolean randomSincronizado;
 
     /**
      * Decide una accion reproducible a partir exclusivamente del estado visible
@@ -37,6 +38,10 @@ public final class JugadorAutomatico {
      */
     public String decidir(MotorPartida motor) {
         MotorPartida validado = Validaciones.noNulo(motor, "Motor de partida");
+        if (!randomSincronizado) {
+            validado.getContexto().setRandom(validado.getRandom());
+            randomSincronizado = true;
+        }
         Juego juego = validado.getJuego();
         Jugador jugador = juego.getJugador();
 
