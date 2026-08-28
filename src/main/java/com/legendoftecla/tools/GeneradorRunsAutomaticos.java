@@ -127,7 +127,7 @@ public final class GeneradorRunsAutomaticos {
         int enemigos = Math.min(Limites.COMBATIENTES_POR_BANDO,
                 Math.max(1, dificultad.ajustarCantidadEnemigos(aliados)));
         double potenciaHumana = aliados * (0.85 + random.nextDouble() * 0.30);
-        double potenciaEnemiga = enemigos * dificultad.getMultiplicadorDanio()
+        double potenciaEnemiga = enemigos * dificultad.getMultiplicadorDanioEnemigo()
                 * (0.85 + random.nextDouble() * 0.30);
         if (condicion == CondicionVictoria.JUGADOR_Y_ALIADOS) potenciaHumana *= 0.92;
         boolean victoria = potenciaHumana >= potenciaEnemiga;
