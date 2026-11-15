@@ -105,6 +105,7 @@ public final class Main {
                     condicionVictoria, varianteMapa);
             configuracion.setNivelAliados(nivelAliados);
             configuracion.setNivelJugador(nivelJugador);
+            configuracion.setUsarPerfilLocal(opciones.isUsarPerfilLocal());
             configuracion.setMejorasEquipoAliado(opciones.isMejorasEquipoAliado());
             configuracion.setMunicionAliadaAutomatica(opciones.isMunicionAliadaAutomatica());
             if (opciones.seed() != null) configuracion.setSeed(opciones.seed());
@@ -119,8 +120,13 @@ public final class Main {
                         motor.getAliadosVisibles(),
                         juegoActual.getCeldasInspeccionadas(),
                         motor.getCeldasIluminadas()));
-                consola.imprimir("Leyenda: J=jugador E=enemigo A=aliado F=fuego ?=oscuridad "
-                        + "T=antorcha U=fuente ==madera o=objeto X=objetivo", TipoMensaje.INFO);
+                if (new java.io.File("/.dockerenv").exists()) {
+                    consola.imprimir("Leyenda: 👤=jugador 🧟=enemigo 👮=aliado 🔥=fuego ⬛=oscuridad "
+                            + "🕯️=antorcha 💧=fuente 🟫=madera 🎁=objeto 🎯=objetivo 🚪=puerta 🕳️=trampa", TipoMensaje.INFO);
+                } else {
+                    consola.imprimir("Leyenda: J=jugador E=enemigo A=aliado F=fuego ?=oscuridad "
+                            + "T=antorcha U=fuente ==madera o=objeto X=objetivo", TipoMensaje.INFO);
+                }
                 consola.imprimir(motor.getEstadoJugador(), TipoMensaje.ESTADO);
                 consola.imprimir(motor.getEstadoAliados(), TipoMensaje.ESTADO);
                 motor.ejecutarComando(consola.leer("accion>"));
