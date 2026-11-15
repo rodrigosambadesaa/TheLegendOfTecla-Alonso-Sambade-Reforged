@@ -5,6 +5,7 @@ import com.legendoftecla.model.world.Posicion;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import com.legendoftecla.validation.Limites;
 import com.legendoftecla.validation.Validaciones;
 
 
@@ -41,9 +42,10 @@ public abstract class Jugador extends Personaje {
      * Ejecuta registrarPosicion.
      */
     public void registrarPosicion() {
-        List<Posicion> nuevoRecorrido = new ArrayList<>(recorrido);
-        nuevoRecorrido.add(getPosicion());
-        setRecorrido(nuevoRecorrido);
+        Posicion actual = getPosicion();
+        // Una sola copia defensiva por paso. Copiar todo el recorrido en cada
+        // movimiento hacia que N pasos acumularan un coste cuadratico.
+        recorrido.add(new Posicion(actual.getFila(), actual.getColumna()));
     }
 
     /**
@@ -52,6 +54,25 @@ public abstract class Jugador extends Personaje {
      */
     public List<Posicion> getRecorrido() {
         return recorrido.stream()
+                .map(posicion -> new Posicion(posicion.getFila(), posicion.getColumna()))
+                .toList();
+    }
+
+    /** @return numero total de posiciones registradas sin copiar el recorrido */
+    public int getLongitudRecorrido() {
+        return recorrido.size();
+    }
+
+    /**
+     * Copia solo las ultimas posiciones para vistas de consola acotadas.
+     *
+     * @param maximo numero maximo de puntos, mayor o igual a uno
+     * @return instantanea defensiva en orden cronologico
+     */
+    public List<Posicion> getRecorridoReciente(int maximo) {
+        Validaciones.enteroEntre(maximo, 1, Limites.PASOS_MAXIMOS, "Limite de recorrido");
+        int desde = Math.max(0, recorrido.size() - maximo);
+        return recorrido.subList(desde, recorrido.size()).stream()
                 .map(posicion -> new Posicion(posicion.getFila(), posicion.getColumna()))
                 .toList();
     }

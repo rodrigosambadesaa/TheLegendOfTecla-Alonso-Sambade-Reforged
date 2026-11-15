@@ -11,6 +11,7 @@ import java.util.Set;
  * Representa la entidad Mapa del juego.
  */
 public class Mapa {
+    private static final boolean MODO_DOCKER = new java.io.File("/.dockerenv").exists();
     private String nombre;
     private String descripcion;
     private Celda[][] celdas;
@@ -203,22 +204,89 @@ public class Mapa {
         if (!estaDentro(origen) || !estaDentro(destino)) {
             return false;
         }
-        if (origen.equals(destino)) {
+        int f0 = origen.getFila();
+        int c0 = origen.getColumna();
+        int f1 = destino.getFila();
+        int c1 = destino.getColumna();
+        if (f0 == f1 && c0 == c1) {
             return true;
         }
-        int df = Integer.compare(destino.getFila(), origen.getFila());
-        int dc = Integer.compare(destino.getColumna(), origen.getColumna());
+        int df = Integer.compare(f1, f0);
+        int dc = Integer.compare(c1, c0);
         if (df != 0 && dc != 0) {
             return false;
         }
-        Posicion cursor = new Posicion(origen.getFila() + df, origen.getColumna() + dc);
-        while (!cursor.equals(destino)) {
-            if (getCelda(cursor).bloqueaVision()) {
+        int currF = f0 + df;
+        int currC = c0 + dc;
+        while (currF != f1 || currC != c1) {
+            if (celdas[currF][currC].bloqueaVision()) {
                 return false;
             }
-            cursor = new Posicion(cursor.getFila() + df, cursor.getColumna() + dc);
+            currF += df;
+            currC += dc;
         }
-        return !getCelda(destino).bloqueaVision();
+        return !celdas[f1][c1].bloqueaVision();
+    }
+
+    /**
+     * Determina la visibilidad optica en linea recta, incluso en diagonal.
+     * A diferencia de la linea de ataque, la vision no se limita a un eje.
+     * En un cruce diagonal no permite ver por una esquina bloqueada por ambos lados.
+     *
+     * @param origen celda desde la que se observa
+     * @param destino celda observada
+     * @return si ninguna barrera solida impide la visual
+     */
+    public boolean hayLineaVision(Posicion origen, Posicion destino) {
+        if (!estaDentro(origen) || !estaDentro(destino)) return false;
+        int fila = origen.getFila();
+        int columna = origen.getColumna();
+        int destinoFila = destino.getFila();
+        int destinoColumna = destino.getColumna();
+        if (fila == destinoFila && columna == destinoColumna) return true;
+        if (celdas[fila][columna].bloqueaVision()
+                || celdas[destinoFila][destinoColumna].bloqueaVision()) return false;
+
+        int deltaFila = Math.abs(destinoFila - fila);
+        int deltaColumna = Math.abs(destinoColumna - columna);
+        int pasoFila = Integer.compare(destinoFila, fila);
+        int pasoColumna = Integer.compare(destinoColumna, columna);
+        int recorridasFila = 0;
+        int recorridasColumna = 0;
+        while (recorridasFila < deltaFila || recorridasColumna < deltaColumna) {
+            // Comparar el instante exacto del proximo cruce de cuadrícula.
+            // A diferencia del Bresenham sesgado, el resultado es simetrico
+            // al invertir origen y destino, tambien para pendientes oblicuas.
+            int comparacion;
+            if (recorridasFila == deltaFila) {
+                comparacion = 1;
+            } else if (recorridasColumna == deltaColumna) {
+                comparacion = -1;
+            } else {
+                comparacion = (2 * recorridasFila + 1) * deltaColumna
+                        - (2 * recorridasColumna + 1) * deltaFila;
+            }
+            if (comparacion == 0) {
+                // Cruce exacto de esquina: al menos uno de sus lados
+                // contiguos debe dejar pasar la visual.
+                if (celdas[fila + pasoFila][columna].bloqueaVision()
+                        && celdas[fila][columna + pasoColumna].bloqueaVision()) {
+                    return false;
+                }
+                fila += pasoFila;
+                columna += pasoColumna;
+                recorridasFila++;
+                recorridasColumna++;
+            } else if (comparacion < 0) {
+                fila += pasoFila;
+                recorridasFila++;
+            } else {
+                columna += pasoColumna;
+                recorridasColumna++;
+            }
+            if (celdas[fila][columna].bloqueaVision()) return false;
+        }
+        return true;
     }
 
     /**
@@ -265,9 +333,10 @@ public class Mapa {
         Set<Posicion> iluminadas = new java.util.HashSet<>();
         for (int f = 0; f < getFilas(); f++) {
             for (int c = 0; c < getColumnas(); c++) {
-                Posicion p = new Posicion(f, c);
-                Celda celda = getCelda(p);
-                if (!celda.isOscura() || celda.estaArdiendo() || celda.hasAntorchaMural()) iluminadas.add(p);
+                Celda celda = celdas[f][c];
+                if (!celda.isOscura() || celda.estaArdiendo() || celda.hasAntorchaMural()) {
+                    iluminadas.add(new Posicion(f, c));
+                }
             }
         }
         return renderAscii(jugador, enemigosVisibles, aliadosVisibles, celdasInspeccionadas, iluminadas);
@@ -282,39 +351,102 @@ public class Mapa {
         Validaciones.noNulo(aliadosVisibles, "Aliados visibles");
         Validaciones.noNulo(celdasInspeccionadas, "Celdas inspeccionadas");
         Validaciones.noNulo(celdasIluminadas, "Celdas iluminadas");
-        StringBuilder sb = new StringBuilder();
-        for (int f = 0; f < getFilas(); f++) {
-            for (int c = 0; c < getColumnas(); c++) {
-                Posicion actual = new Posicion(f, c);
-                if (actual.equals(jugador)) {
-                    sb.append('J');
-                } else if (celdas[f][c].estaArdiendo()) {
-                    sb.append('F');
-                } else if (!celdasIluminadas.contains(actual)) {
-                    sb.append('?');
-                } else if (actual.equals(objetivo)) {
-                    sb.append('X');
-                } else if (celdas[f][c].simboloElemento() != 0) {
-                    sb.append(celdas[f][c].simboloElemento());
-                } else if (!celdas[f][c].isTransitable()) {
-                    sb.append('#');
-                } else if (!celdas[f][c].getEnemigos().isEmpty() && enemigosVisibles.contains(actual)) {
-                    sb.append('E');
-                } else if (!celdas[f][c].getAliados().isEmpty() && aliadosVisibles.contains(actual)) {
-                    sb.append('A');
-                } else if (!celdas[f][c].getObjetos().isEmpty()
-                        && celdasInspeccionadas.contains(actual)) {
-                    sb.append('o');
-                } else if (celdas[f][c].hasFuenteAgua()) {
-                    sb.append('U');
-                } else if (celdas[f][c].hasAntorchaMural()) {
-                    sb.append('T');
-                } else if (celdas[f][c].getTipoSuelo() == TipoSuelo.MADERA) {
-                    sb.append('=');
+
+        int filas = getFilas();
+        int columnas = getColumnas();
+        boolean[][] iluminadas = new boolean[filas][columnas];
+        for (Posicion p : celdasIluminadas) {
+            if (estaDentro(p, filas, columnas)) iluminadas[p.getFila()][p.getColumna()] = true;
+        }
+        boolean[][] enemigosV = new boolean[filas][columnas];
+        for (Posicion p : enemigosVisibles) {
+            if (estaDentro(p, filas, columnas)) enemigosV[p.getFila()][p.getColumna()] = true;
+        }
+        boolean[][] aliadosV = new boolean[filas][columnas];
+        for (Posicion p : aliadosVisibles) {
+            if (estaDentro(p, filas, columnas)) aliadosV[p.getFila()][p.getColumna()] = true;
+        }
+        boolean[][] inspeccionadas = new boolean[filas][columnas];
+        for (Posicion p : celdasInspeccionadas) {
+            if (estaDentro(p, filas, columnas)) inspeccionadas[p.getFila()][p.getColumna()] = true;
+        }
+
+        // Estas mascaras proceden de los bandos activos y su visibilidad real.
+        // No depender de listas de ocupantes de la celda, que pueden estar obsoletas.
+        boolean modoDocker = MODO_DOCKER;
+
+        int charsPorCelda = modoDocker ? 2 : 2;
+        StringBuilder sb = new StringBuilder(filas * (columnas * charsPorCelda + 1));
+        for (int f = 0; f < filas; f++) {
+            for (int c = 0; c < columnas; c++) {
+                boolean esJugador = (f == jugador.getFila() && c == jugador.getColumna());
+                boolean esObjetivo = (objetivo != null && f == objetivo.getFila() && c == objetivo.getColumna());
+                Celda celda = celdas[f][c];
+
+                if (modoDocker) {
+                    String tile = "⬜";
+                    if (esJugador) {
+                        tile = "👤";
+                    } else if (celda.estaArdiendo()) {
+                        tile = "🔥";
+                    } else if (!iluminadas[f][c]) {
+                        tile = "⬛";
+                    } else if (esObjetivo) {
+                        tile = "🎯";
+                    } else if (celda.simboloElemento() != 0) {
+                        char sim = celda.simboloElemento();
+                        if (sim == '+' || sim == '/') tile = "🚪";
+                        else if (sim == '^') tile = "🕳️";
+                        else if (sim == 'C') tile = "🧰";
+                        else if (sim == 'O') tile = "🛢️";
+                        else if (sim == '=') tile = "🧱";
+                        else tile = String.valueOf(sim) + " ";
+                    } else if (!celda.isTransitable()) {
+                        tile = "🧱";
+                    } else if (enemigosV[f][c]) {
+                        tile = "🧟";
+                    } else if (aliadosV[f][c]) {
+                        tile = "👮";
+                    } else if (celda.hasObjetos() && inspeccionadas[f][c]) {
+                        tile = "🎁";
+                    } else if (celda.hasFuenteAgua()) {
+                        tile = "💧";
+                    } else if (celda.hasAntorchaMural()) {
+                        tile = "🕯️";
+                    } else if (celda.getTipoSuelo() == TipoSuelo.MADERA) {
+                        tile = "🟫";
+                    }
+                    sb.append(tile);
                 } else {
-                    sb.append('.');
+                    if (esJugador) {
+                        sb.append('J');
+                    } else if (celda.estaArdiendo()) {
+                        sb.append('F');
+                    } else if (!iluminadas[f][c]) {
+                        sb.append('?');
+                    } else if (esObjetivo) {
+                        sb.append('X');
+                    } else if (celda.simboloElemento() != 0) {
+                        sb.append(celda.simboloElemento());
+                    } else if (!celda.isTransitable()) {
+                        sb.append('#');
+                    } else if (enemigosV[f][c]) {
+                        sb.append('E');
+                    } else if (aliadosV[f][c]) {
+                        sb.append('A');
+                    } else if (celda.hasObjetos() && inspeccionadas[f][c]) {
+                        sb.append('o');
+                    } else if (celda.hasFuenteAgua()) {
+                        sb.append('U');
+                    } else if (celda.hasAntorchaMural()) {
+                        sb.append('T');
+                    } else if (celda.getTipoSuelo() == TipoSuelo.MADERA) {
+                        sb.append('=');
+                    } else {
+                        sb.append('.');
+                    }
+                    sb.append(' ');
                 }
-                sb.append(' ');
             }
             sb.append('\n');
         }

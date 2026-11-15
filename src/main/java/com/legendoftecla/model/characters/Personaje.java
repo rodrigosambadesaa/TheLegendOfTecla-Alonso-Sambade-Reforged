@@ -213,7 +213,7 @@ public abstract class Personaje {
       * @return resultado de la operacion
      */
     public Posicion getPosicion() {
-        return new Posicion(posicion.getFila(), posicion.getColumna());
+        return posicion;
     }
 
     /**
@@ -222,8 +222,7 @@ public abstract class Personaje {
      * @param nuevaPosicion posicion solicitada
      */
     public void setPosicion(Posicion nuevaPosicion) {
-        Posicion validada = Validaciones.noNulo(nuevaPosicion, "Posicion");
-        posicion = new Posicion(validada.getFila(), validada.getColumna());
+        posicion = Validaciones.noNulo(nuevaPosicion, "Posicion");
     }
 
     /**
@@ -292,6 +291,11 @@ public abstract class Personaje {
      * @param nuevaVision alcance visual base del personaje
      */
     public void configurarEstadisticas(int nuevaSalud, int nuevaEnergia, int nuevaVision) {
+        // Las tres entradas se validan antes de modificar la primera estadistica:
+        // un escenario erroneo no puede dejar salud y energia actualizadas a medias.
+        Validaciones.enteroEntre(nuevaSalud, 1, Limites.ESTADISTICA, "Salud maxima");
+        Validaciones.enteroEntre(nuevaEnergia, 1, Limites.ESTADISTICA, "Energia maxima");
+        Validaciones.enteroEntre(nuevaVision, 1, Limites.ESTADISTICA, "Vision base");
         setSaludMaxima(nuevaSalud);
         setSalud(nuevaSalud);
         setEnergiaMaxima(nuevaEnergia);
@@ -317,6 +321,10 @@ public abstract class Personaje {
         Validaciones.noNulo(armas, "Armas equipadas");
         if (armas.size() > 2 || armas.stream().anyMatch(java.util.Objects::isNull)) {
             throw new IllegalArgumentException("Solo se admiten dos armas equipadas y ninguna puede ser nula.");
+        }
+        if (armas.size() == 2 && armas.get(0) == armas.get(1)) {
+            throw new IllegalArgumentException(
+                    "Una misma instancia de arma no puede ocupar dos ranuras.");
         }
         if (armas.stream().anyMatch(arma -> !faccionCompatible(arma.getFaccion()))) {
             throw new IllegalArgumentException(
@@ -737,6 +745,8 @@ public abstract class Personaje {
      */
     public void recuperarSalud(int cantidad) {
         Validaciones.enteroEntre(cantidad, 0, Limites.ESTADISTICA, "Salud recuperada");
+        // Curar heridas no equivale a resucitar a un personaje que ha muerto.
+        if (salud == 0) return;
         setSalud(salud + cantidad);
     }
 
@@ -757,8 +767,10 @@ public abstract class Personaje {
         Validaciones.decimalEntre(factor, 0.01, 100.0, "Factor de salud");
         int nuevaSaludMaxima = Math.max(1, (int) Math.round(saludMaxima * factor));
         double proporcionActual = saludMaxima <= 0 ? 1.0 : (double) salud / saludMaxima;
+        boolean fallecido = salud == 0;
         setSaludMaxima(nuevaSaludMaxima);
-        setSalud(Math.max(1, (int) Math.round(saludMaxima * proporcionActual)));
+        setSalud(fallecido ? 0
+                : Math.max(1, (int) Math.round(saludMaxima * proporcionActual)));
     }
 
     /**

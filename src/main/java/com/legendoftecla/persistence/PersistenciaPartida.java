@@ -79,6 +79,18 @@ public final class PersistenciaPartida {
         }
         MapaEstado mapaEstado = new MapaEstado(mapa.getNombre(), mapa.getDescripcion(),
                 mapa.getFilas(), mapa.getColumnas(), mapa.getInicio(), mapa.getObjetivo(), celdas);
+        List<Aliado> registrados = juego.getAliadosRegistrados();
+        java.util.Map<Aliado, Integer> indices = new java.util.IdentityHashMap<>();
+        for (int i = 0; i < registrados.size(); i++) {
+            indices.put(registrados.get(i), i);
+        }
+        List<Integer> evacuados = juego.getAliadosExtraidosDetalle().stream().map(aliado -> {
+            Integer indice = indices.get(aliado);
+            if (indice == null) {
+                throw new IllegalStateException("Aliado evacuado no registrado.");
+            }
+            return indice;
+        }).toList();
         return new PartidaGuardada(PartidaGuardada.VERSION_ACTUAL, seed, juego.getPasos(),
                 juego.getPasosMaximos(), mapaEstado, personaje(juego.getJugador()),
                 juego.getAliados().stream().map(PersistenciaPartida::personaje).toList(),
@@ -87,17 +99,71 @@ public final class PersistenciaPartida {
                 juego.getMision() == null ? null : juego.getMision().getId(), juego.getPuntuacion(),
                 juego.getEstadisticas().snapshot(), juego.getLogros().getDesbloqueados(),
                 mision(juego.getMision()), juego.isMejorasEquipoAliadoPermitidas(),
-                juego.isMunicionAliadaAutomatica());
+                juego.isMunicionAliadaAutomatica(),
+                registrados.stream().map(PersistenciaPartida::personaje).toList(),
+                evacuados, juego.getCondicionVictoria().name(),
+                juego.getFormacionAliada().name());
     }
 
     private static void validar(PartidaGuardada guardada) throws JuegoException {
         if (guardada == null) throw new JuegoException("El JSON no contiene una partida.");
-        if (guardada.version() != PartidaGuardada.VERSION_ACTUAL) {
+        if (guardada.version() != PartidaGuardada.VERSION_ACTUAL
+                && guardada.version() != PartidaGuardada.VERSION_INICIAL) {
             throw new JuegoException("Version de partida no compatible: " + guardada.version());
         }
         if (guardada.mapa() == null || guardada.jugador() == null
-                || guardada.mapa().celdas() == null) {
+                || guardada.mapa().celdas() == null || guardada.aliados() == null
+                || guardada.enemigos() == null) {
             throw new JuegoException("Faltan datos obligatorios de partida.");
+        }
+        validarIntegridadMapa(guardada.mapa());
+        if (guardada.version() == PartidaGuardada.VERSION_ACTUAL) {
+            if (guardada.aliadosRegistrados() == null || guardada.indicesExtraidos() == null
+                    || guardada.condicionVictoria() == null || guardada.formacionAliada() == null) {
+                throw new JuegoException("Falta el historial de evacuacion de la partida v2.");
+            }
+            int total = guardada.aliadosRegistrados().size();
+            java.util.Set<Integer> indices = new java.util.HashSet<>();
+            for (Integer indice : guardada.indicesExtraidos()) {
+                if (indice == null || indice < 0 || indice >= total || !indices.add(indice)) {
+                    throw new JuegoException("Indices de evacuados corruptos.");
+                }
+            }
+            if (total > com.legendoftecla.validation.Limites.ALIADOS_MAXIMOS
+                    || total - indices.size() != guardada.aliados().size()) {
+                throw new JuegoException("Historial de aliados inconsistente.");
+            }
+        }
+    }
+
+    /**
+     * Un savegame debe describir todas las celdas del mapa una sola vez.
+     * De lo contrario, la restauracion puede dejar referencias nulas o
+     * reemplazar silenciosamente el contenido de una casilla duplicada.
+     */
+    private static void validarIntegridadMapa(MapaEstado mapa) throws JuegoException {
+        int filas = mapa.filas();
+        int columnas = mapa.columnas();
+        if (filas < com.legendoftecla.validation.Limites.MAPA_MINIMO
+                || filas > com.legendoftecla.validation.Limites.MAPA_MAXIMO
+                || columnas < com.legendoftecla.validation.Limites.MAPA_MINIMO
+                || columnas > com.legendoftecla.validation.Limites.MAPA_MAXIMO) {
+            throw new JuegoException("Dimensiones de mapa fuera de los limites permitidos.");
+        }
+        if (mapa.celdas().size() != filas * columnas) {
+            throw new JuegoException("Numero de celdas del mapa inconsistente.");
+        }
+        boolean[] ocupadas = new boolean[filas * columnas];
+        for (CeldaEstado celda : mapa.celdas()) {
+            if (celda == null || celda.fila() < 0 || celda.fila() >= filas
+                    || celda.columna() < 0 || celda.columna() >= columnas) {
+                throw new JuegoException("Celda del mapa nula o fuera de limites.");
+            }
+            int indice = celda.fila() * columnas + celda.columna();
+            if (ocupadas[indice]) {
+                throw new JuegoException("La partida contiene celdas del mapa duplicadas.");
+            }
+            ocupadas[indice] = true;
         }
     }
 
@@ -128,8 +194,12 @@ public final class PersistenciaPartida {
                 || estado.mejorasEquipoAliado());
         juego.setMunicionAliadaAutomatica(estado.municionAliadaAutomatica() == null
                 || estado.municionAliadaAutomatica());
-        estado.aliados().stream().map(PersistenciaPartida::crearPersonaje)
-                .map(Aliado.class::cast).forEach(juego::agregarAliado);
+        if (estado.version() == PartidaGuardada.VERSION_ACTUAL) {
+            restaurarEscuadron(juego, estado);
+        } else {
+            estado.aliados().stream().map(PersistenciaPartida::crearPersonaje)
+                    .map(Aliado.class::cast).forEach(juego::agregarAliado);
+        }
         estado.enemigos().stream().map(PersistenciaPartida::crearPersonaje)
                 .map(Enemigo.class::cast).forEach(juego::agregarEnemigo);
         juego.getEstadisticas().restaurar(estado.estadisticas());
@@ -139,11 +209,41 @@ public final class PersistenciaPartida {
         return juego;
     }
 
+    /**
+     * Reconstruye exactamente una instancia por aliado registrado, evitando
+     * referencias duplicadas entre activos y evacuados.
+     */
+    private static void restaurarEscuadron(Juego juego, PartidaGuardada estado) {
+        List<Aliado> registrados = estado.aliadosRegistrados().stream()
+                .map(PersistenciaPartida::crearPersonaje).map(Aliado.class::cast).toList();
+        java.util.Set<Integer> indicesExtraidos = new java.util.HashSet<>(estado.indicesExtraidos());
+        List<Aliado> activos = new ArrayList<>();
+        List<Aliado> evacuados = new ArrayList<>();
+        for (int i = 0; i < registrados.size(); i++) {
+            Aliado aliado = registrados.get(i);
+            if (indicesExtraidos.contains(i)) {
+                evacuados.add(aliado);
+            } else {
+                activos.add(aliado);
+            }
+        }
+        juego.setAliadosRegistrados(registrados);
+        juego.setAliados(activos);
+        juego.setAliadosIniciales(registrados.size());
+        juego.setAliadosExtraidosDetalle(evacuados);
+        juego.setAliadosExtraidos(evacuados.size());
+        juego.setCondicionVictoria(
+                com.legendoftecla.constants.CondicionVictoria.valueOf(estado.condicionVictoria()));
+        juego.setFormacionAliada(
+                com.legendoftecla.constants.FormacionAliada.valueOf(estado.formacionAliada()));
+    }
+
     private static PersonajeEstado personaje(Personaje personaje) {
         int nivel = personaje instanceof Jugador jugador ? jugador.getProgresion().getNivel()
                 : personaje instanceof Aliado aliado ? aliado.getNivel() : 0;
         int experiencia = personaje instanceof Jugador jugador
-                ? jugador.getProgresion().getExperiencia() : 0;
+                ? jugador.getProgresion().getExperiencia()
+                : personaje instanceof Aliado aliado ? aliado.getProgresion().getExperiencia() : 0;
         java.util.Set<String> habilidades = personaje instanceof Jugador jugador
                 ? jugador.getProgresion().getDesbloqueadas() : java.util.Set.of();
         return new PersonajeEstado(personaje.getClass().getSimpleName(), personaje.getNombre(),
@@ -154,7 +254,9 @@ public final class PersistenciaPartida {
                 personaje.getArmasEquipadas().stream().map(PersistenciaPartida::objeto).toList(),
                 personaje.getArmaduraEquipada() == null ? null : objeto(personaje.getArmaduraEquipada()),
                 personaje.getEstados().getActivos(), nivel, experiencia, habilidades,
-                personaje instanceof Aliado aliado ? aliado.getRol().name() : null);
+                personaje instanceof Aliado aliado ? aliado.getRol().name() : null,
+                personaje instanceof Enemigo enemigo
+                        ? enemigo.getMultiplicadorDanioPartida() : null);
     }
 
     private static Personaje crearPersonaje(PersonajeEstado estado) {
@@ -189,11 +291,16 @@ public final class PersistenciaPartida {
                 (Armadura) crearObjeto(estado.armadura(), faccionHistorica));
         lista(estado.estados()).forEach(activo -> personaje.getEstados().restaurar(
                 efecto(activo.tipo()), activo.turnosRestantes(), activo.acumulaciones()));
+        if (personaje instanceof Enemigo enemigo && estado.multiplicadorDanio() != null) {
+            enemigo.setMultiplicadorDanioPartida(estado.multiplicadorDanio());
+        }
         if (personaje instanceof Jugador jugador && estado.nivel() > 0) {
             jugador.getProgresion().restaurar(estado.nivel(), estado.experiencia(),
                     estado.habilidades());
         } else if (personaje instanceof Aliado aliado) {
-            if (estado.nivel() > 0) aliado.setNivel(estado.nivel());
+            if (estado.nivel() > 0) {
+                aliado.getProgresion().restaurar(estado.nivel(), estado.experiencia(), java.util.Set.of());
+            }
             if (estado.rolAliado() != null) aliado.setRol(
                     RolAliado.valueOf(estado.rolAliado()));
         }
