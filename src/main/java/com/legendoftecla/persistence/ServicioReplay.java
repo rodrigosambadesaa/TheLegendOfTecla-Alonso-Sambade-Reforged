@@ -4,47 +4,115 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.legendoftecla.engine.MotorPartida;
 import com.legendoftecla.model.world.Juego;
+import com.legendoftecla.validation.Limites;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.Objects;
 import java.util.function.Supplier;
 
-/** Guardado, reproduccion y validacion de replays. */
+/** Guarda y verifica replays v1 con limites y escritura atomica. */
 public final class ServicioReplay {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private ServicioReplay() { }
+    private static final int MAX_BYTES = 16 * 1024 * 1024;
+    private static final int MAX_COMANDOS = 1_000_000;
+
+    private ServicioReplay() {
+    }
+
+    /** Guarda un replay valido usando reemplazo atomico. */
     public static void guardar(ReplayPartida replay, Path archivo) throws IOException {
-        Files.writeString(archivo, GSON.toJson(replay), StandardCharsets.UTF_8);
-    }
-    public static ReplayPartida cargar(Path archivo) throws IOException {
-        ReplayPartida replay = GSON.fromJson(
-                Files.readString(archivo, StandardCharsets.UTF_8), ReplayPartida.class);
-        if (replay == null || replay.version() != 1 || replay.comandos() == null
-                || replay.hashFinal() == null) {
-            throw new IOException("Replay corrupto o de version no compatible");
+        validar(replay);
+        String json = GSON.toJson(replay);
+        if (json.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) {
+            throw new IOException("El replay supera el limite de 16 MiB.");
         }
-        return replay;
+        EscrituraAtomica.escribir(archivo, json);
     }
+
+    /** Lee un replay acotado y traduce corrupcion JSON a IOException. */
+    public static ReplayPartida cargar(Path archivo) throws IOException {
+        try {
+            ReplayPartida replay = GSON.fromJson(
+                    leerAcotado(archivo), ReplayPartida.class);
+            validar(replay);
+            return replay;
+        } catch (RuntimeException error) {
+            throw new IOException("Replay corrupto o de version no compatible", error);
+        }
+    }
+
+    /** Lee hasta el limite incluso si el archivo cambia de tamano durante la lectura. */
+    private static String leerAcotado(Path archivo) throws IOException {
+        try (InputStream entrada = Files.newInputStream(archivo)) {
+            byte[] bytes = entrada.readNBytes(MAX_BYTES + 1);
+            if (bytes.length > MAX_BYTES) {
+                throw new IOException("El replay supera el limite de 16 MiB.");
+            }
+            return StandardCharsets.UTF_8.newDecoder()
+                    .decode(ByteBuffer.wrap(bytes)).toString();
+        }
+    }
+
+    /**
+     * Reproduce comandos mientras el motor siga activo; nunca ignora ordenes
+     * posteriores a una finalizacion anticipada.
+     */
     public static boolean reproducir(ReplayPartida replay, Supplier<MotorPartida> fabrica) {
-        if (replay == null || replay.version() != 1) return false;
-        MotorPartida motor = fabrica.get();
-        replay.comandos().forEach(motor::ejecutarComando);
-        return replay.hashFinal().equals(hash(motor.getJuego()));
+        try {
+            validar(replay);
+        } catch (IOException error) {
+            return false;
+        }
+        MotorPartida motor = Objects.requireNonNull(
+                Objects.requireNonNull(fabrica, "Fabrica").get(), "Motor");
+        for (int i = 0; i < replay.comandos().size(); i++) {
+            boolean continua = motor.ejecutarComando(replay.comandos().get(i));
+            if (!continua && i + 1 < replay.comandos().size()) {
+                return false;
+            }
+        }
+        return replay.hashFinal().equalsIgnoreCase(hash(motor.getJuego()));
     }
+
+    /**
+     * SHA-256 historico de replay v1 (no cubre inventario ni NPC).
+     *
+     * @return huella antigua, para verificar replays ya existentes
+     */
     public static String hash(Juego juego) {
         String estado = juego.getMapa().renderAscii(juego.getJugador().getPosicion())
                 + juego.getJugador().getSalud() + ":" + juego.getJugador().getEnergia()
                 + ":" + juego.getPasos();
+        return sha256(estado);
+    }
+
+    private static String sha256(String estado) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(estado.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException imposible) {
             throw new IllegalStateException(imposible);
+        }
+    }
+
+    private static void validar(ReplayPartida replay) throws IOException {
+        if (replay == null || replay.version() != 1
+                || replay.comandos() == null || replay.hashFinal() == null) {
+            throw new IOException("Replay corrupto o de version no compatible");
+        }
+        if (replay.comandos().size() > MAX_COMANDOS
+                || replay.comandos().stream().anyMatch(comando ->
+                        comando == null || comando.isBlank()
+                        || comando.length() > Limites.DESCRIPCION)) {
+            throw new IOException("Replay con comandos no validos.");
         }
     }
 }

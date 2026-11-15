@@ -9,6 +9,7 @@ import com.legendoftecla.validation.Validaciones;
 import java.util.HashMap;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -84,7 +85,7 @@ public class CommandParser {
         if (partes.length == 0 || partes[0].isBlank()) {
             throw new ComandoException("Comando vacio.");
         }
-        String nombre = partes[0].toLowerCase();
+        String nombre = partes[0].toLowerCase(Locale.ROOT);
         ConstructorComando constructor = rutas.get(nombre);
         if (constructor == null) {
             throw new ComandoException("Comando desconocido: " + nombre);
@@ -332,7 +333,7 @@ public class CommandParser {
         if (partes.length != 2) {
             throw new ComandoException("Uso: reagrupar <defensiva|ofensiva|ninguna>");
         }
-        FormacionAliada formacion = switch (partes[1].toLowerCase()) {
+        FormacionAliada formacion = switch (partes[1].toLowerCase(Locale.ROOT)) {
             case "defensiva" -> FormacionAliada.DEFENSIVA;
             case "ofensiva" -> FormacionAliada.OFENSIVA;
             case "ninguna", "libre" -> FormacionAliada.SIN_FORMACION;
