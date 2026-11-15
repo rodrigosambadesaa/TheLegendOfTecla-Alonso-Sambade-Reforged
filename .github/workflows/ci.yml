@@ -14,6 +14,25 @@ permissions:
   contents: read
 
 jobs:
+  upstream-parity:
+    name: Compare source against original Tecla
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout this variant
+        uses: actions/checkout@v7
+
+      - name: Checkout original Tecla as parity reference
+        uses: actions/checkout@v7
+        with:
+          repository: rodrigosambadesaa/TheLegendOfTecla
+          ref: main
+          path: .upstream-original
+          persist-credentials: false
+
+      - name: Check common sources, resources and allowed variant classes
+        run: python3 tools/check_upstream_parity.py --variant alonso --upstream .upstream-original
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 25

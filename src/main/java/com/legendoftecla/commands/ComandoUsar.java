@@ -17,6 +17,9 @@ import com.legendoftecla.model.world.Posicion;
 import com.legendoftecla.validation.Limites;
 import com.legendoftecla.validation.Validaciones;
 
+import java.util.ArrayList;
+import java.util.List;
+
 
 /**
  * Representa la entidad ComandoUsar del juego.
@@ -54,6 +57,7 @@ public class ComandoUsar implements Comando {
     public void ejecutar() throws ComandoException {
         Jugador jugador = context.getJuego().getJugador();
         int saludAntes = jugador.getSalud();
+        List<Objeto> originales = List.copyOf(jugador.getMochila().getObjetos());
         Objeto obj = jugador.getMochila().quitarPorNombre(nombreObjeto);
         boolean estabaEquipado = false;
         Binocular equipado = jugador.getBinocularEquipado();
@@ -65,33 +69,41 @@ public class ComandoUsar implements Comando {
         if (obj == null) {
             throw new ComandoException("No tienes ese objeto en la mochila.");
         }
+        boolean consumible;
         try {
             if (obj instanceof CuboAgua cubo) {
                 usarCubo(jugador, cubo);
             } else {
                 obj.usar(jugador);
             }
-            if (!obj.isConsumible()) {
-                devolverObjeto(jugador, obj, estabaEquipado);
-            }
-            String detalle = obj instanceof Linterna
-                    ? (jugador.isLinternaActiva() ? " encendida." : " apagada.") : ".";
-            context.getJuego().getConsola().imprimir("Usas " + obj.getNombre() + detalle);
-            context.getJuego().publicarEvento(new ObjetoUsado(
-                    context.getJuego().getBusEventos().ahora(), jugador.getNombre(),
-                    obj.getNombre(), jugador.getPosicion()));
-            int curacion = jugador.getSalud() - saludAntes;
-            if (curacion > 0) {
-                context.getJuego().publicarEvento(new PersonajeCurado(
-                        context.getJuego().getBusEventos().ahora(), jugador.getNombre(),
-                        curacion, jugador.getPosicion()));
-            }
+            consumible = obj.isConsumible();
         } catch (ComandoException e) {
-            devolverObjeto(jugador, obj, estabaEquipado);
+            devolverObjeto(jugador, obj, estabaEquipado, originales);
             throw e;
         } catch (JuegoException e) {
-            devolverObjeto(jugador, obj, estabaEquipado);
+            devolverObjeto(jugador, obj, estabaEquipado, originales);
             throw new ComandoException(e.getMessage());
+        } catch (RuntimeException | Error e) {
+            // Un fallo inesperado del efecto no debe eliminar el objeto.
+            devolverObjeto(jugador, obj, estabaEquipado, originales);
+            throw e;
+        }
+        if (!consumible) {
+            devolverObjeto(jugador, obj, estabaEquipado, originales);
+        }
+        // Las notificaciones se envian una vez concluido el uso. Un listener
+        // que falle no debe devolver un consumible que ya produjo su efecto.
+        String detalle = obj instanceof Linterna
+                ? (jugador.isLinternaActiva() ? " encendida." : " apagada.") : ".";
+        context.getJuego().getConsola().imprimir("Usas " + obj.getNombre() + detalle);
+        context.getJuego().publicarEvento(new ObjetoUsado(
+                context.getJuego().getBusEventos().ahora(), jugador.getNombre(),
+                obj.getNombre(), jugador.getPosicion()));
+        int curacion = jugador.getSalud() - saludAntes;
+        if (curacion > 0) {
+            context.getJuego().publicarEvento(new PersonajeCurado(
+                    context.getJuego().getBusEventos().ahora(), jugador.getNombre(),
+                    curacion, jugador.getPosicion()));
         }
     }
 
@@ -123,11 +135,17 @@ public class ComandoUsar implements Comando {
         cubo.consumirAgua();
     }
 
-    private void devolverObjeto(Jugador jugador, Objeto objeto, boolean estabaEquipado) {
+    private void devolverObjeto(Jugador jugador, Objeto objeto, boolean estabaEquipado,
+            List<Objeto> originales) {
         if (estabaEquipado && objeto instanceof Binocular binocular) {
             jugador.setBinocularEquipado(binocular);
         } else {
-            jugador.getMochila().guardar(objeto);
+            List<Objeto> actuales = new ArrayList<>(jugador.getMochila().getObjetos());
+            int indiceOriginal = originales.indexOf(objeto);
+            int indice = indiceOriginal < 0 ? actuales.size()
+                    : Math.min(indiceOriginal, actuales.size());
+            actuales.add(indice, objeto);
+            jugador.getMochila().setObjetos(actuales);
         }
     }
 }

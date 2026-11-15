@@ -10,6 +10,7 @@ import com.legendoftecla.events.EventoJuego;
 import com.legendoftecla.model.characters.Aliado;
 import com.legendoftecla.model.characters.Enemigo;
 import com.legendoftecla.model.characters.Jugador;
+import com.legendoftecla.model.characters.Personaje;
 import com.legendoftecla.validation.Limites;
 import com.legendoftecla.validation.Validaciones;
 
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.Map;
 
 /**
@@ -51,6 +53,12 @@ public class Juego {
     private boolean municionAliadaAutomatica;
     private boolean equilibrioBandosSellado;
     private int limiteEnemigos;
+    /** Opt-in del perfil de progresion reutilizable entre misiones. */
+    private boolean usarPerfilLocal;
+    /** Las bajas se identifican por instancia, nunca por el nombre compartido. */
+    private final Set<Enemigo> bajasRecompensadas =
+            Collections.newSetFromMap(new IdentityHashMap<>());
+    private boolean victoriaRecompensada;
 
     /**
      * Ejecuta Juego.
@@ -59,6 +67,51 @@ public class Juego {
       * @param mapa valor de {@code mapa}
       * @param pasosMaximos valor de {@code pasosMaximos}
      */
+    /** Devuelve una instantanea de las bajas recompensadas sin exponer el conjunto interno. */
+    public Set<Enemigo> getBajasRecompensadas() {
+        Set<Enemigo> copia = Collections.newSetFromMap(new IdentityHashMap<>());
+        copia.addAll(bajasRecompensadas);
+        return Collections.unmodifiableSet(copia);
+    }
+
+    /** Restaura el registro, preservando la identidad de los enemigos. */
+    public void setBajasRecompensadas(Set<Enemigo> bajas) {
+        Validaciones.noNulo(bajas, "Bajas recompensadas");
+        if (bajas.stream().anyMatch(java.util.Objects::isNull)) {
+            throw new IllegalArgumentException("El registro de bajas no admite nulos.");
+        }
+        Set<Enemigo> copia = Collections.newSetFromMap(new IdentityHashMap<>());
+        copia.addAll(bajas);
+        bajasRecompensadas.clear();
+        bajasRecompensadas.addAll(copia);
+    }
+
+    /** @return si se concedio la recompensa de victoria en esta partida */
+    public boolean isVictoriaRecompensada() { return victoriaRecompensada; }
+
+    /** @param valor si el premio de victoria ya se entrego */
+    public void setVictoriaRecompensada(boolean valor) {
+        victoriaRecompensada = valor;
+    }
+
+    /** Registra una recompensa por baja, exactamente una vez por enemigo y partida. */
+    public boolean registrarBajaRecompensada(Enemigo enemigo) {
+        return bajasRecompensadas.add(Validaciones.noNulo(enemigo, "Enemigo"));
+    }
+
+    /** Registra una recompensa final solo la primera vez que se concede. */
+    public boolean registrarVictoriaRecompensada() {
+        if (victoriaRecompensada) return false;
+        victoriaRecompensada = true;
+        return true;
+    }
+
+    /** @return si se conserva el progreso al iniciar otras partidas */
+    public boolean isUsarPerfilLocal() { return usarPerfilLocal; }
+
+    /** @param valor activa el guardado de progresion entre partidas */
+    public void setUsarPerfilLocal(boolean valor) { usarPerfilLocal = valor; }
+
     public Juego(Consola consola, Mapa mapa, Jugador jugador, int pasosMaximos) {
         setConsola(consola);
         setMapa(mapa);
@@ -121,6 +174,13 @@ public class Juego {
         if (celdasInspeccionadasAliados != null && celdasInspeccionadasAliados.values().stream()
                 .flatMap(Set::stream).anyMatch(posicion -> !validado.estaDentro(posicion))) {
             throw new IllegalArgumentException("El nuevo mapa dejaria inspecciones aliadas fuera de sus limites.");
+        }
+        if (contienePersonajeFuera(validado, aliados)
+                || contienePersonajeFuera(validado, aliadosRegistrados)
+                || contienePersonajeFuera(validado, aliadosExtraidosDetalle)
+                || contienePersonajeFuera(validado, enemigos)) {
+            throw new IllegalArgumentException(
+                    "El nuevo mapa dejaria personajes registrados fuera de sus limites.");
         }
         AmbientacionMapa.completar(validado);
         this.mapa = validado;
@@ -397,10 +457,7 @@ public class Juego {
      * @return conjunto defensivo de posiciones inspeccionadas
      */
     public Set<Posicion> getCeldasInspeccionadas() {
-        Set<Posicion> copia = new HashSet<>();
-        celdasInspeccionadas.forEach(posicion -> copia.add(
-                new Posicion(posicion.getFila(), posicion.getColumna())));
-        return Collections.unmodifiableSet(copia);
+        return Collections.unmodifiableSet(copiarPosiciones(celdasInspeccionadas));
     }
 
     /**
@@ -415,21 +472,18 @@ public class Juego {
                         posicion -> posicion == null || !mapa.estaDentro(posicion))) {
             throw new IllegalArgumentException("Las celdas inspeccionadas deben pertenecer al mapa.");
         }
-        Set<Posicion> copia = new HashSet<>();
-        celdasInspeccionadas.forEach(posicion -> copia.add(
-                new Posicion(posicion.getFila(), posicion.getColumna())));
-        this.celdasInspeccionadas = copia;
+        this.celdasInspeccionadas = copiarPosiciones(celdasInspeccionadas);
     }
 
     /** Registra que el jugador ha mirado la celda en la que se encuentra. */
     public void inspeccionarCeldaActual() {
-        Set<Posicion> inspeccionadas = new HashSet<>(celdasInspeccionadas);
-        Posicion posicion = jugador.getPosicion();
-        boolean nueva = inspeccionadas.add(posicion);
-        setCeldasInspeccionadas(inspeccionadas);
+        Posicion actual = jugador.getPosicion();
+        Posicion posicion = new Posicion(actual.getFila(), actual.getColumna());
+        boolean nueva = celdasInspeccionadas.add(posicion);
         if (nueva) {
             publicarEvento(new CeldaInspeccionada(busEventos.ahora(),
-                    jugador.getNombre(), posicion));
+                    jugador.getNombre(),
+                    new Posicion(posicion.getFila(), posicion.getColumna())));
         }
     }
 
@@ -447,7 +501,7 @@ public class Juego {
     public Map<Aliado, Set<Posicion>> getCeldasInspeccionadasAliados() {
         Map<Aliado, Set<Posicion>> copia = new HashMap<>();
         celdasInspeccionadasAliados.forEach((aliado, posiciones) ->
-                copia.put(aliado, new HashSet<>(posiciones)));
+                copia.put(aliado, copiarPosiciones(posiciones)));
         return copia;
     }
 
@@ -462,7 +516,8 @@ public class Juego {
             throw new IllegalArgumentException("Las inspecciones aliadas no son validas.");
         }
         Map<Aliado, Set<Posicion>> copia = new HashMap<>();
-        inspecciones.forEach((aliado, posiciones) -> copia.put(aliado, new HashSet<>(posiciones)));
+        inspecciones.forEach((aliado, posiciones) ->
+                copia.put(aliado, copiarPosiciones(posiciones)));
         this.celdasInspeccionadasAliados = copia;
     }
 
@@ -477,10 +532,13 @@ public class Juego {
         validarPosicionPersonaje(validado.getPosicion(), "aliado");
         Set<Posicion> posiciones = celdasInspeccionadasAliados
                 .computeIfAbsent(validado, clave -> new HashSet<>());
-        boolean nueva = posiciones.add(validado.getPosicion());
+        Posicion actual = validado.getPosicion();
+        Posicion inspeccionada = new Posicion(actual.getFila(), actual.getColumna());
+        boolean nueva = posiciones.add(inspeccionada);
         if (nueva) {
             publicarEvento(new CeldaInspeccionada(busEventos.ahora(),
-                    validado.getNombre(), validado.getPosicion()));
+                    validado.getNombre(),
+                    new Posicion(inspeccionada.getFila(), inspeccionada.getColumna())));
         }
         return nueva;
     }
@@ -658,6 +716,22 @@ public class Juego {
         return pasos > pasosMaximos;
     }
 
+    /** Copia coordenadas mutables antes de utilizarlas como claves de un HashSet. */
+    private static Set<Posicion> copiarPosiciones(Set<Posicion> posiciones) {
+        Set<Posicion> copia = new HashSet<>(posiciones.size());
+        for (Posicion posicion : posiciones) {
+            copia.add(new Posicion(posicion.getFila(), posicion.getColumna()));
+        }
+        return copia;
+    }
+
+    /** Verifica todos los bandos antes de aplicar un cambio de mapa. */
+    private static boolean contienePersonajeFuera(Mapa mapa,
+            List<? extends Personaje> personajes) {
+        return personajes != null && personajes.stream()
+                .anyMatch(personaje -> !mapa.estaDentro(personaje.getPosicion()));
+    }
+
     private void validarPosicionPersonaje(Posicion posicion, String tipo) {
         if (!mapa.estaDentro(posicion)) {
             throw new IllegalArgumentException("La posicion del " + tipo + " queda fuera del mapa.");
@@ -669,6 +743,13 @@ public class Juego {
         Validaciones.noNulo(personajes, campo);
         if (personajes.stream().anyMatch(java.util.Objects::isNull)) {
             throw new IllegalArgumentException(campo + " no puede contener valores nulos.");
+        }
+        Set<T> identidades = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (T personaje : personajes) {
+            if (!identidades.add(personaje)) {
+                throw new IllegalArgumentException(campo
+                        + " no puede contener dos veces el mismo personaje.");
+            }
         }
         if (mapa != null) {
             personajes.forEach(personaje -> validarPosicionPersonaje(personaje.getPosicion(), campo));

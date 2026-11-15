@@ -11,7 +11,6 @@ import com.legendoftecla.model.characters.Zapador;
 import com.legendoftecla.model.items.Explosivo;
 import com.legendoftecla.model.items.Granada;
 import com.legendoftecla.model.items.TipoGranada;
-import com.legendoftecla.model.items.Objeto;
 import com.legendoftecla.model.world.Celda;
 import com.legendoftecla.model.world.Direccion;
 import com.legendoftecla.model.world.Mapa;
@@ -20,6 +19,7 @@ import com.legendoftecla.validation.Limites;
 import com.legendoftecla.validation.Validaciones;
 import com.legendoftecla.engine.SistemaIncendios;
 import com.legendoftecla.engine.ServicioBotinEnemigo;
+import com.legendoftecla.engine.ServicioExperiencia;
 
 import java.util.List;
 import java.util.regex.Matcher;
@@ -85,12 +85,15 @@ public final class ComandoLanzarExplosivo implements Comando {
         }
 
         Celda celda = mapa.getCelda(destino);
-        List<Enemigo> objetivos = List.copyOf(celda.getEnemigos());
+        List<Enemigo> objetivos = context.getJuego().getEnemigos().stream()
+                .filter(enemigo -> enemigo.getSalud() > 0
+                        && enemigo.getPosicion().equals(destino))
+                .toList();
         if (objetivos.isEmpty()) {
             throw new ComandoException("No hay enemigos en la celda objetivo.");
         }
 
-        context.getJuego().getJugador().getMochila().quitarPorNombre(explosivo.getNombre());
+        context.getJuego().getJugador().getMochila().quitar(explosivo);
         List<Integer> vidasAntes = objetivos.stream().map(Enemigo::getSalud).toList();
         objetivos.forEach(enemigo -> context.getJuego().publicarEvento(new PersonajeAtacado(
                 context.getJuego().getBusEventos().ahora(),
@@ -120,6 +123,8 @@ public final class ComandoLanzarExplosivo implements Comando {
             if (vidasAntes.get(i) > 0 && enemigo.getSalud() <= 0) {
                 context.getJuego().publicarEvento(new PersonajeMuerto(
                         context.getJuego().getBusEventos().ahora(), enemigo.getNombre(), destino));
+                ServicioExperiencia.recompensarBaja(
+                        context.getJuego(), context.getJuego().getJugador(), enemigo);
             }
         }
         SistemaIncendios.intentarDerribarAntorcha(
@@ -147,11 +152,11 @@ public final class ComandoLanzarExplosivo implements Comando {
     }
 
     private Explosivo buscarExplosivo() throws ComandoException {
-        Objeto objeto = context.getJuego().getJugador().getMochila().getObjetos().stream()
+        Explosivo explosivo = context.getJuego().getJugador().getMochila().getObjetos()
+                .stream().filter(Explosivo.class::isInstance).map(Explosivo.class::cast)
                 .filter(candidato -> candidato.getNombre().equalsIgnoreCase(nombreExplosivo))
-                .findFirst()
-                .orElse(null);
-        if (!(objeto instanceof Explosivo explosivo)) {
+                .findFirst().orElse(null);
+        if (explosivo == null) {
             throw new ComandoException("No tienes ese explosivo en la mochila.");
         }
         return explosivo;
@@ -162,7 +167,12 @@ public final class ComandoLanzarExplosivo implements Comando {
         if (!matcher.matches()) {
             throw new ComandoException("Alcance invalido. Usa un valor como 3e, 2n, 4s o 1o.");
         }
-        int pasos = Integer.parseInt(matcher.group(1));
+        int pasos;
+        try {
+            pasos = Integer.parseInt(matcher.group(1));
+        } catch (NumberFormatException error) {
+            throw new ComandoException("La distancia supera el rango numerico permitido.");
+        }
         if (pasos < 1 || pasos > alcanceMaximo) {
             throw new ComandoException("El explosivo permite lanzar entre 1 y " + alcanceMaximo + " celdas.");
         }

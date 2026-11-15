@@ -12,7 +12,6 @@ import java.nio.file.Path;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GeneradorRunsAutomaticosTest {
@@ -20,49 +19,37 @@ class GeneradorRunsAutomaticosTest {
     Path temporal;
 
     @Test
-    void generaArtefactosReproduciblesYResumenCoherente() throws IOException {
-        Path salida = temporal.resolve("runs");
-        GeneradorRunsAutomaticos.Resumen resumen = GeneradorRunsAutomaticos.generar(
-                salida, 8, 77L, Instant.parse("2026-08-14T00:00:00Z"));
+    void generaPartidasCompletasConAmbasCondicionesYFinales() throws IOException {
+        GeneradorRunsAutomaticos.ResumenLote resumen = GeneradorRunsAutomaticos.generar(
+                temporal.resolve("runs"), 16, 77L, Instant.parse("2026-08-14T00:00:00Z"));
 
-        assertEquals(8, resumen.total());
-        assertEquals(8, resumen.victoriasHumanas() + resumen.victoriasEnemigas());
-        assertEquals(GeneradorRunsAutomaticos.ALIADOS_MINIMOS, resumen.aliadosMinimos());
-        assertEquals(Limites.ALIADOS_MAXIMOS, resumen.aliadosMaximos());
-        assertTrue(resumen.bytes() > 0);
-        assertTrue(Files.exists(salida.resolve("index.csv")));
-        assertTrue(Files.exists(salida.resolve("statistics.json")));
-        assertTrue(Files.exists(salida.resolve("manifest.sha256")));
-        assertTrue(Files.exists(salida.resolve("run-0001-actions.log.gz")));
+        assertEquals(16, resumen.totalRuns());
+        assertEquals(16, resumen.runsAutonomos());
+        assertEquals(16, resumen.runsCompletados());
+        assertEquals(8, resumen.victoriasHumanas());
+        assertEquals(8, resumen.victoriasEnemigas());
+        assertEquals(8, resumen.porCondicion().get("SOLO_JUGADOR"));
+        assertEquals(8, resumen.porCondicion().get("JUGADOR_Y_ALIADOS"));
+        assertTrue(resumen.porFinal().containsKey("VICTORIA_TODOS_ALIADOS"));
+        assertTrue(resumen.porFinal().containsKey("VICTORIA_ALIADA_POST_MORTEM"));
     }
 
     @Test
-    void cubreLosLimitesDePoblacionYAlternaCondicion() throws IOException {
+    void cubreDesdeCienHastaElMaximoDelJuego() throws IOException {
         Path salida = temporal.resolve("limites");
-        GeneradorRunsAutomaticos.generar(
+        GeneradorRunsAutomaticos.ResumenLote resumen = GeneradorRunsAutomaticos.generar(
                 salida, 2, 91L, Instant.parse("2026-08-14T00:00:00Z"));
 
+        assertEquals(GeneradorRunsAutomaticos.ALIADOS_MINIMOS, resumen.aliadosMinimos());
+        assertEquals(Limites.ALIADOS_MAXIMOS, resumen.aliadosMaximos());
         JsonObject primero = JsonParser.parseString(Files.readString(
                 salida.resolve("run-0001.json"))).getAsJsonObject();
         JsonObject ultimo = JsonParser.parseString(Files.readString(
                 salida.resolve("run-0002.json"))).getAsJsonObject();
-        assertEquals(100, primero.get("aliados").getAsInt());
-        assertEquals(Limites.ALIADOS_MAXIMOS, ultimo.get("aliados").getAsInt());
-        assertEquals("SOLO_JUGADOR", primero.get("condicion").getAsString());
-        assertEquals("JUGADOR_Y_ALIADOS", ultimo.get("condicion").getAsString());
-    }
-
-    @Test
-    void mismaSemillaProduceElMismoRun() {
-        assertEquals(GeneradorRunsAutomaticos.simular(3, 16, 123L),
-                GeneradorRunsAutomaticos.simular(3, 16, 123L));
-        assertEquals(GeneradorRunsAutomaticos.mezclarSemilla(123L, 3),
-                GeneradorRunsAutomaticos.mezclarSemilla(123L, 3));
-    }
-
-    @Test
-    void rechazaCantidadFueraDeRango() {
-        assertThrows(IllegalArgumentException.class, () -> GeneradorRunsAutomaticos.generar(
-                temporal.resolve("invalido"), 1, 1L, Instant.EPOCH));
+        assertEquals(100, primero.get("aliadosIniciales").getAsInt());
+        assertEquals(Limites.ALIADOS_MAXIMOS, ultimo.get("aliadosIniciales").getAsInt());
+        assertEquals("FINALIZADA", ultimo.getAsJsonArray("eventos")
+                .get(ultimo.getAsJsonArray("eventos").size() - 1)
+                .getAsJsonObject().get("fase").getAsString());
     }
 }

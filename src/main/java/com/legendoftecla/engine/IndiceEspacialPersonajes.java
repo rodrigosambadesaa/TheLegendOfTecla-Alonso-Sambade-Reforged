@@ -2,100 +2,115 @@ package com.legendoftecla.engine;
 
 import com.legendoftecla.model.characters.Personaje;
 import com.legendoftecla.model.world.Posicion;
+import com.legendoftecla.validation.Limites;
 import com.legendoftecla.validation.Validaciones;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Predicate;
 
-/** Indice inmutable por turno que evita búsquedas cartesianas entre bandos. */
+/**
+ * Indice espacial inmutable por turno. Guarda las coordenadas en el momento de
+ * construccion para evitar que el movimiento posterior modifique la instantanea.
+ *
+ * <p>Las busquedas recorren solo los personajes indexados, no los anillos
+ * intermedios. Asi, incluso un radio Integer.MAX_VALUE o un origen remoto
+ * conserva un coste acotado por el numero de personajes.
+ */
 public final class IndiceEspacialPersonajes<T extends Personaje> {
-    private final Map<Posicion, List<T>> porPosicion = new LinkedHashMap<>();
-    private int filaMinima = Integer.MAX_VALUE;
-    private int filaMaxima = Integer.MIN_VALUE;
-    private int columnaMinima = Integer.MAX_VALUE;
-    private int columnaMaxima = Integer.MIN_VALUE;
+    private static final int MAX_GRID = Limites.MAPA_MAXIMO;
 
+    private final List<T> todos;
+    private final List<Entrada<T>> indexados;
+
+    /**
+     * Crea una instantanea que no comparte la lista mutable recibida.
+     *
+     * @param personajes personajes del turno; sin elementos nulos
+     */
     public IndiceEspacialPersonajes(List<T> personajes) {
-        Validaciones.noNulo(personajes, "Personajes").forEach(personaje -> {
-            Posicion posicion = Validaciones.noNulo(personaje, "Personaje").getPosicion();
-            porPosicion.computeIfAbsent(posicion, clave -> new ArrayList<>()).add(personaje);
-            filaMinima = Math.min(filaMinima, posicion.getFila());
-            filaMaxima = Math.max(filaMaxima, posicion.getFila());
-            columnaMinima = Math.min(columnaMinima, posicion.getColumna());
-            columnaMaxima = Math.max(columnaMaxima, posicion.getColumna());
-        });
-    }
-
-    /** Busca por anillos Manhattan sin recorrer todos los personajes. */
-    public T masCercano(Posicion origen, Predicate<T> filtro) {
-        Validaciones.noNulo(origen, "Origen");
-        Validaciones.noNulo(filtro, "Filtro");
-        if (porPosicion.isEmpty()) return null;
-        int distanciaMaxima = Math.max(Math.abs(origen.getFila() - filaMinima),
-                Math.abs(origen.getFila() - filaMaxima))
-                + Math.max(Math.abs(origen.getColumna() - columnaMinima),
-                Math.abs(origen.getColumna() - columnaMaxima));
-        for (int distancia = 0; distancia <= distanciaMaxima; distancia++) {
-            T candidato = buscarEnAnillo(origen, distancia, filtro);
-            if (candidato != null) return candidato;
+        this.todos = List.copyOf(Validaciones.noNulo(personajes, "Personajes"));
+        List<Entrada<T>> entradas = new ArrayList<>(todos.size());
+        for (T personaje : todos) {
+            Posicion posicion = personaje.getPosicion();
+            int fila = posicion.getFila();
+            int columna = posicion.getColumna();
+            if (fila >= 0 && fila < MAX_GRID && columna >= 0 && columna < MAX_GRID) {
+                entradas.add(new Entrada<>(personaje, fila, columna));
+            }
         }
-        return null;
+        this.indexados = List.copyOf(entradas);
     }
 
-    /** Indica si alguna entrada del indice satisface el filtro. */
+    /** Busca el personaje mas cercano por distancia Manhattan. */
+    public T masCercano(Posicion origen, Predicate<T> filtro) {
+        return masCercano(origen, Integer.MAX_VALUE, filtro);
+    }
+
+    /** Indica si algun personaje de la instantanea satisface el filtro. */
     public boolean alguno(Predicate<T> filtro) {
         Validaciones.noNulo(filtro, "Filtro");
-        return porPosicion.values().stream().flatMap(List::stream).anyMatch(filtro);
+        for (T personaje : todos) {
+            if (filtro.test(personaje)) return true;
+        }
+        return false;
     }
 
-    /** Devuelve candidatos situados dentro de un radio Manhattan acotado. */
+    /**
+     * Devuelve candidatos dentro del radio en orden de distancia, fila y
+     * columna. Los empates en una misma celda mantienen el orden de entrada.
+     */
     public List<T> cercanos(Posicion origen, int radio, Predicate<T> filtro) {
-        Validaciones.noNulo(origen, "Origen");
-        Validaciones.noNulo(filtro, "Filtro");
-        if (radio < 0) throw new IllegalArgumentException("Radio negativo.");
-        List<T> resultado = new ArrayList<>();
-        for (int distancia = 0; distancia <= radio; distancia++) {
-            agregarAnillo(origen, distancia, filtro, resultado);
+        validarConsulta(origen, radio, filtro);
+        List<Entrada<T>> seleccionados = new ArrayList<>();
+        for (Entrada<T> entrada : indexados) {
+            if (entrada.distancia(origen) <= radio && filtro.test(entrada.personaje())) {
+                seleccionados.add(entrada);
+            }
+        }
+        seleccionados.sort((primera, segunda) -> comparar(primera, segunda, origen));
+        List<T> resultado = new ArrayList<>(seleccionados.size());
+        for (Entrada<T> entrada : seleccionados) {
+            resultado.add(entrada.personaje());
         }
         return List.copyOf(resultado);
     }
 
-    /** Busca el candidato mas cercano sin superar el radio indicado. */
+    /** Busca el primer candidato sin superar el radio indicado. */
     public T masCercano(Posicion origen, int radio, Predicate<T> filtro) {
+        validarConsulta(origen, radio, filtro);
+        Entrada<T> mejor = null;
+        for (Entrada<T> entrada : indexados) {
+            if (entrada.distancia(origen) > radio || !filtro.test(entrada.personaje())) {
+                continue;
+            }
+            if (mejor == null || comparar(entrada, mejor, origen) < 0) {
+                mejor = entrada;
+            }
+        }
+        return mejor == null ? null : mejor.personaje();
+    }
+
+    private static <T extends Personaje> int comparar(
+            Entrada<T> primera, Entrada<T> segunda, Posicion origen) {
+        int comparacion = Integer.compare(primera.distancia(origen), segunda.distancia(origen));
+        if (comparacion != 0) return comparacion;
+        comparacion = Integer.compare(primera.fila(), segunda.fila());
+        if (comparacion != 0) return comparacion;
+        return Integer.compare(primera.columna(), segunda.columna());
+    }
+
+    private static <T extends Personaje> void validarConsulta(
+            Posicion origen, int radio, Predicate<T> filtro) {
         Validaciones.noNulo(origen, "Origen");
         Validaciones.noNulo(filtro, "Filtro");
         if (radio < 0) throw new IllegalArgumentException("Radio negativo.");
-        for (int distancia = 0; distancia <= radio; distancia++) {
-            T candidato = buscarEnAnillo(origen, distancia, filtro);
-            if (candidato != null) return candidato;
+    }
+
+    private record Entrada<T extends Personaje>(T personaje, int fila, int columna) {
+        private int distancia(Posicion origen) {
+            return Math.abs(origen.getFila() - fila)
+                    + Math.abs(origen.getColumna() - columna);
         }
-        return null;
-    }
-
-    private T buscarEnAnillo(Posicion origen, int distancia, Predicate<T> filtro) {
-        List<T> encontrados = new ArrayList<>();
-        agregarAnillo(origen, distancia, filtro, encontrados);
-        return encontrados.isEmpty() ? null : encontrados.get(0);
-    }
-
-    private void agregarAnillo(Posicion origen, int distancia, Predicate<T> filtro,
-                               List<T> resultado) {
-        for (int deltaFila = -distancia; deltaFila <= distancia; deltaFila++) {
-            int deltaColumna = distancia - Math.abs(deltaFila);
-            agregarPosicion(origen, deltaFila, -deltaColumna, filtro, resultado);
-            if (deltaColumna != 0) {
-                agregarPosicion(origen, deltaFila, deltaColumna, filtro, resultado);
-            }
-        }
-    }
-
-    private void agregarPosicion(Posicion origen, int deltaFila, int deltaColumna,
-                                 Predicate<T> filtro, List<T> resultado) {
-        List<T> personajes = porPosicion.get(new Posicion(
-                origen.getFila() + deltaFila, origen.getColumna() + deltaColumna));
-        if (personajes != null) personajes.stream().filter(filtro).forEach(resultado::add);
     }
 }

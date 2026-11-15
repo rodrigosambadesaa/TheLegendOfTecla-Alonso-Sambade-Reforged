@@ -18,7 +18,12 @@ import java.util.HexFormat;
 import java.util.Objects;
 import java.util.function.Supplier;
 
-/** Guarda y verifica replays v1 con limites y escritura atomica. */
+/**
+ * Guarda, carga y verifica replays sin invalidar los archivos historicos v1.
+ *
+ * <p>La version 2 comprueba el estado persistible completo, mientras que la
+ * version 1 conserva deliberadamente su huella historica limitada.
+ */
 public final class ServicioReplay {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final int MAX_BYTES = 16 * 1024 * 1024;
@@ -79,7 +84,9 @@ public final class ServicioReplay {
                 return false;
             }
         }
-        return replay.hashFinal().equalsIgnoreCase(hash(motor.getJuego()));
+        String calculada = replay.version() == 1
+                ? hash(motor.getJuego()) : hashCompleto(motor.getJuego());
+        return replay.hashFinal().equalsIgnoreCase(calculada);
     }
 
     /**
@@ -94,6 +101,15 @@ public final class ServicioReplay {
         return sha256(estado);
     }
 
+    /**
+     * SHA-256 del estado persistible completo para replays de version 2.
+     *
+     * @return huella canonica de mapa, equipo, personajes y progresion
+     */
+    public static String hashCompleto(Juego juego) {
+        return HuellaEstadoReplay.calcular(juego);
+    }
+
     private static String sha256(String estado) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
@@ -104,7 +120,7 @@ public final class ServicioReplay {
     }
 
     private static void validar(ReplayPartida replay) throws IOException {
-        if (replay == null || replay.version() != 1
+        if (replay == null || (replay.version() != 1 && replay.version() != 2)
                 || replay.comandos() == null || replay.hashFinal() == null) {
             throw new IOException("Replay corrupto o de version no compatible");
         }
@@ -113,6 +129,10 @@ public final class ServicioReplay {
                         comando == null || comando.isBlank()
                         || comando.length() > Limites.DESCRIPCION)) {
             throw new IOException("Replay con comandos no validos.");
+        }
+        if (replay.version() == 2
+                && !replay.hashFinal().matches("(?i)[0-9a-f]{64}")) {
+            throw new IOException("La huella SHA-256 del replay v2 no es valida.");
         }
     }
 }

@@ -34,11 +34,14 @@ class CommandParserTest {
         assertThrows(ComandoException.class, () -> parser.parse("mover norte 0"));
         assertThrows(ComandoException.class, () -> parser.parse("mirar norte cero"));
         assertThrows(ComandoException.class, () -> parser.parse("lanzar norte granada"));
-        assertThrows(ComandoException.class, () -> parser.parse("pedir auxilio"));
+        assertInstanceOf(ComandoPedirAyuda.class, parser.parse("pedir auxilio"));
         assertThrows(ComandoException.class, () -> parser.parse("descansar ahora"));
         assertInstanceOf(ComandoDescansar.class, parser.parse("reposar"));
         assertInstanceOf(ComandoReagrupar.class, parser.parse("reagrupar defensiva"));
         assertInstanceOf(ComandoReagrupar.class, parser.parse("formacion ofensiva"));
+        assertInstanceOf(ComandoReagrupar.class, parser.parse("romper formación"));
+        assertInstanceOf(ComandoReagrupar.class, parser.parse("reagrupar ninguna"));
+        assertThrows(ComandoException.class, () -> parser.parse("romper filas"));
         assertThrows(ComandoException.class, () -> parser.parse("reagrupar dispersa"));
     }
 

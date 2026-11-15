@@ -13,8 +13,11 @@ public record PartidaGuardada(int version, long seed, int turnos, int pasosMaxim
         List<PersonajeEstado> enemigos, Set<Posicion> inspeccionadas,
         String misionId, int puntuacion, EstadisticasPartida.Snapshot estadisticas,
         Set<String> logros, MisionEstado mision, Boolean mejorasEquipoAliado,
-        Boolean municionAliadaAutomatica) {
-    public static final int VERSION_ACTUAL = 1;
+        Boolean municionAliadaAutomatica,
+        List<PersonajeEstado> aliadosRegistrados, List<Integer> indicesExtraidos,
+        String condicionVictoria, String formacionAliada) {
+    public static final int VERSION_ACTUAL = 2;
+    public static final int VERSION_INICIAL = 1;
 
     public record MapaEstado(String nombre, String descripcion, int filas, int columnas,
             Posicion inicio, Posicion objetivo, List<CeldaEstado> celdas) { }
@@ -27,7 +30,19 @@ public record PartidaGuardada(int version, long seed, int turnos, int pasosMaxim
             Posicion posicion, int capacidad, double pesoMax,
             List<ObjetoEstado> inventario, List<ObjetoEstado> armas,
             ObjetoEstado armadura, List<EstadoActivo> estados,
-            int nivel, int experiencia, Set<String> habilidades, String rolAliado) { }
+            int nivel, int experiencia, Set<String> habilidades, String rolAliado,
+            Double multiplicadorDanio) {
+        /** Constructor compatible con serializadores y pruebas anteriores. */
+        public PersonajeEstado(String tipo, String nombre, int salud, int saludMaxima,
+                int energia, int energiaMaxima, int vision, Posicion posicion,
+                int capacidad, double pesoMax, List<ObjetoEstado> inventario,
+                List<ObjetoEstado> armas, ObjetoEstado armadura, List<EstadoActivo> estados,
+                int nivel, int experiencia, Set<String> habilidades, String rolAliado) {
+            this(tipo, nombre, salud, saludMaxima, energia, energiaMaxima, vision,
+                    posicion, capacidad, pesoMax, inventario, armas, armadura, estados,
+                    nivel, experiencia, habilidades, rolAliado, null);
+        }
+    }
     public record ObjetoEstado(String tipo, String nombre, String descripcion,
             double peso, int valor, int valor2, int valor3, boolean bandera,
             String subtipo, String faccion, String categoria, String claseArma,

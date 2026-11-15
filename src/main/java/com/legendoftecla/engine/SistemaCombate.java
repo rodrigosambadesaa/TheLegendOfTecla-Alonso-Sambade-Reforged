@@ -16,7 +16,10 @@ import com.legendoftecla.model.items.TipoMunicion;
 import com.legendoftecla.model.world.Juego;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.Random;
 
 /** Unifica daño, registro, sonido y efectos ambientales de todos los combatientes. */
@@ -24,6 +27,7 @@ public final class SistemaCombate {
     private SistemaCombate() { }
 
     public static ResultadoAtaque atacar(Juego juego, Personaje atacante, Personaje objetivo, Random random) {
+        exigirVivos(atacante, objetivo);
         int distancia = atacante.getPosicion().distanciaManhattan(objetivo.getPosicion());
         Arma arma = atacante.armaDisponiblePara(distancia).orElse(null);
         exigirMunicion(atacante, objetivo);
@@ -37,6 +41,9 @@ public final class SistemaCombate {
                     PrecisionTirador.calcular(atacante), proteccion.tipo(),
                     proteccion.flanqueada(), atacante.getEstados().multiplicadorPrecision());
             if (!cobertura.impacta(probabilidad)) {
+                // El disparo se ha efectuado, aunque la cobertura lo detenga.
+                // Al acertar, Personaje.atacar consume la municion habitual.
+                if (arma != null) arma.consumirDisparo();
                 ResultadoAtaque fallo = resultado(atacante, objetivo, vidaAntes);
                 juego.getConsola().imprimir(atacante.getNombre() + " falla contra "
                         + objetivo.getNombre() + " por la cobertura.", TipoMensaje.INFO);
@@ -46,14 +53,19 @@ public final class SistemaCombate {
         atacante.atacar(objetivo);
         aplicarEfectosDeArma(juego, atacante, objetivo, arma);
         ResultadoAtaque resultado = resultado(atacante, objetivo, vidaAntes);
-        informar(juego, resultado, objetivo);
+        informar(juego, atacante, resultado, objetivo);
         SistemaIncendios.intentarDerribarAntorcha(juego, objetivo.getPosicion(), random);
         return resultado;
     }
 
     public static List<ResultadoAtaque> atacarTodos(Juego juego, Personaje atacante,
             List<? extends Personaje> objetivos, Random random) {
-        Arma arma = objetivos.isEmpty() ? null : atacante.armaDisponiblePara(
+        // Validar toda la lista antes de publicar ataques o gastar cartuchos.
+        java.util.Objects.requireNonNull(objetivos, "Objetivos");
+        if (objetivos.isEmpty()) return List.of();
+        validarObjetivosColectivos(objetivos);
+        for (Personaje objetivo : objetivos) exigirVivos(atacante, objetivo);
+        Arma arma = atacante.armaDisponiblePara(
                 atacante.getPosicion().distanciaManhattan(
                         objetivos.get(0).getPosicion())).orElse(null);
         if (!objetivos.isEmpty()) {
@@ -68,19 +80,56 @@ public final class SistemaCombate {
                         objetivos.isEmpty() ? null : objetivos.get(0)), "ataque"));
         atacante.atacar(objetivos);
         if (!objetivos.isEmpty()) {
+            // El efecto estructural se aplica una sola vez a la casilla comun.
             aplicarEfectosDeArma(juego, atacante, objetivos.get(0), arma);
+            // La supresion, en cambio, afecta a cada enemigo alcanzado.
+            for (int i = 1; i < objetivos.size(); i++) {
+                aplicarSupresion(atacante, objetivos.get(i));
+            }
         }
         List<ResultadoAtaque> resultados = new ArrayList<>();
         for (int i = 0; i < objetivos.size(); i++) {
             Personaje objetivo = objetivos.get(i);
             ResultadoAtaque resultado = resultado(atacante, objetivo, vidas.get(i));
             resultados.add(resultado);
-            informar(juego, resultado, objetivo);
+            informar(juego, atacante, resultado, objetivo);
         }
         if (!objetivos.isEmpty()) {
             SistemaIncendios.intentarDerribarAntorcha(juego, objetivos.get(0).getPosicion(), random);
         }
         return List.copyOf(resultados);
+    }
+
+    /**
+     * Un ataque colectivo corresponde a personajes distintos en una misma casilla.
+     * Las listas mal formadas no deben provocar danos/eventos duplicados.
+     */
+    private static void validarObjetivosColectivos(List<? extends Personaje> objetivos) {
+        Set<Personaje> vistos = Collections.newSetFromMap(new IdentityHashMap<>());
+        var posicion = java.util.Objects.requireNonNull(
+                objetivos.get(0), "Objetivo").getPosicion();
+        for (Personaje objetivo : objetivos) {
+            java.util.Objects.requireNonNull(objetivo, "Objetivo");
+            if (!vistos.add(objetivo)) {
+                throw new IllegalArgumentException("Un objetivo colectivo aparece repetido.");
+            }
+            if (!objetivo.getPosicion().equals(posicion)) {
+                throw new IllegalArgumentException(
+                        "Los objetivos colectivos deben ocupar la misma casilla.");
+            }
+        }
+    }
+
+    /** Ninguna baja debe poder atacar, recibir ataques ni gastar cartuchos. */
+    private static void exigirVivos(Personaje atacante, Personaje objetivo) {
+        java.util.Objects.requireNonNull(atacante, "Atacante");
+        java.util.Objects.requireNonNull(objetivo, "Objetivo");
+        if (atacante.getSalud() <= 0) {
+            throw new IllegalStateException("Un personaje muerto no puede atacar.");
+        }
+        if (objetivo.getSalud() <= 0) {
+            throw new IllegalArgumentException("No se puede atacar a un personaje muerto.");
+        }
     }
 
     private static ResultadoAtaque resultado(Personaje atacante, Personaje objetivo, int vidaAntes) {
@@ -89,7 +138,8 @@ public final class SistemaCombate {
                 objetivo.getSaludMaxima(), vidaAntes > 0 && objetivo.getSalud() <= 0);
     }
 
-    private static void informar(Juego juego, ResultadoAtaque resultado, Personaje objetivo) {
+    private static void informar(Juego juego, Personaje atacante,
+            ResultadoAtaque resultado, Personaje objetivo) {
         String texto = resultado.atacante() + " ataca a " + resultado.objetivo()
                 + ": quita " + resultado.vidaQuitada() + " de vida; quedan "
                 + resultado.vidaRestante() + "/" + resultado.vidaMaxima() + ".";
@@ -101,6 +151,7 @@ public final class SistemaCombate {
         if (resultado.mortal()) {
             juego.publicarEvento(new PersonajeMuerto(juego.getBusEventos().ahora(),
                     objetivo.getNombre(), objetivo.getPosicion()));
+            ServicioExperiencia.recompensarBaja(juego, atacante, objetivo);
             juego.getConsola().imprimir(resultado.objetivo() + " muere.", TipoMensaje.ADVERTENCIA);
         }
     }
@@ -136,6 +187,11 @@ public final class SistemaCombate {
                 || arma.getTipoMunicion() == TipoMunicion.COHETE)) {
             SistemaDestruccion.danar(juego, objetivo.getPosicion(), arma.getDanio());
         }
+        aplicarSupresion(atacante, objetivo);
+    }
+
+    /** Cada combatiente vivo recibe la misma supresion, no solo el primero. */
+    private static void aplicarSupresion(Personaje atacante, Personaje objetivo) {
         if (atacante instanceof Jugador jugador
                 && jugador.getProgresion().tiene(
                         com.legendoftecla.progression.CatalogoHabilidades.FUEGO_SUPRESION)
