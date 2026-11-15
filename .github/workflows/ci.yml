@@ -33,6 +33,56 @@ jobs:
       - name: Check common sources, resources and allowed variant classes
         run: python3 tools/check_upstream_parity.py --variant alonso --upstream .upstream-original
 
+  upstream-regressions:
+    name: Run original regression tests missing from this edition
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout this Reforged edition
+        uses: actions/checkout@v7
+
+      - name: Checkout original regression test reference
+        uses: actions/checkout@v7
+        with:
+          repository: rodrigosambadesaa/TheLegendOfTecla
+          ref: main
+          path: .upstream-original
+          persist-credentials: false
+
+      - name: Set up Java 17 and Maven cache
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Add missing original regression suites without overwriting edition tests
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import shutil
+          from pathlib import Path
+
+          source = Path(".upstream-original/src/test")
+          destination = Path("src/test")
+          if not source.is_dir():
+              raise SystemExit("Missing original regression tests")
+          added = 0
+          for file in sorted(source.rglob("*")):
+              if not file.is_file():
+                  continue
+              target = destination / file.relative_to(source)
+              if target.exists():
+                  continue
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(file, target)
+              added += 1
+          print(f"Added {added} original regression files (existing Reforged tests retained)")
+          PY
+
+      - name: Run original and edition-specific regression suites together
+        run: mvn --batch-mode --no-transfer-progress clean test
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 25
